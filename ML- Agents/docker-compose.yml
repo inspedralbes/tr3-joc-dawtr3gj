@@ -1,0 +1,11 @@
+services:
+  trainer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mlagents-trainer
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+    tty: true
+    stdin_open: true
