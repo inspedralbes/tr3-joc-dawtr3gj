@@ -4,7 +4,7 @@ using Unity.MLAgents.Sensors;
 using Unity.MLAgents.Actuators;
 // Aquesta classe hereta de Agent.
 // Aix� vol dir que Unity ML-Agents la tractar� com un agent entrenable.
-public class AgentScriipt : Agent
+public class SimpleAgent : Agent
 {
  // Refer�ncia al target (l'objectiu que l'agent ha d'anar a tocar).
  // Es podr� assignar des de l'Inspector de Unity.
@@ -48,7 +48,7 @@ public class AgentScriipt : Agent
  0f
  );
  // Col�loquem tamb� el target en una posici� aleat�ria.
- // Aix� obliga l'agent a aprendre a buscar-lo en lloc de memoritzar una posicio fixa.
+ // Aix� obliga l'agent a aprendre a buscar-lo en lloc de memoritzar una posici� fixa.
  target.localPosition = new Vector3(
  Random.Range(-arenaLimit, arenaLimit),
  Random.Range(-arenaLimit, arenaLimit),

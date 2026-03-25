@@ -7,5 +7,5 @@ RUN pip install "setuptools<81" wheel
 # Versions conservadores per evitar el nou exportador ONNX de PyTorch
 RUN pip install "torch==2.2.2" "onnx==1.15.0"
 # RUN pip install onnx onnxscript
-RUN pip install mlagents==1.1.0
+RUN pip install mlagents==1.1.0 mlagents-envs==1.1.0
 WORKDIR /workspace
