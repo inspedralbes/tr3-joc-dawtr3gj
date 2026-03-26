@@ -15,7 +15,8 @@ public class SimpleAgent : Agent
  [SerializeField] private float moveSpeed = 5f;
  // L�mit de l'arena per generar posicions aleat�ries.
  // S'utilitza per reiniciar l'agent i el target dins d'una zona concreta.
- [SerializeField] private float arenaLimit = 4f;
+ [SerializeField] private float arenaWidth = 8f;
+ [SerializeField] private float arenaHeight = 4f;
  // Refer�ncia al Rigidbody2D de l'agent.
  // El necessitem per moure'l amb f�sica 2D.
  private Rigidbody2D rb;
@@ -43,15 +44,15 @@ public class SimpleAgent : Agent
  // Col�loquem l'agent en una posici� aleat�ria dins de l'arena.
  // En 2D treballem amb X i Y.
  transform.localPosition = new Vector3(
- Random.Range(-arenaLimit, arenaLimit),
- Random.Range(-arenaLimit, arenaLimit),
+ Random.Range(-arenaWidth/2, arenaWidth/2),
+ Random.Range(-arenaHeight/2, arenaHeight/2),
  0f
  );
  // Col�loquem tamb� el target en una posici� aleat�ria.
  // Aix� obliga l'agent a aprendre a buscar-lo en lloc de memoritzar una posici� fixa.
  target.localPosition = new Vector3(
- Random.Range(-arenaLimit, arenaLimit),
- Random.Range(-arenaLimit, arenaLimit),
+ Random.Range(-arenaWidth/2, arenaWidth/2),
+ Random.Range(-arenaHeight/2, arenaHeight/2),
  0f
  );
  }
@@ -105,8 +106,8 @@ public class SimpleAgent : Agent
  // Aix� fa que l'agent no perdi el temps i intenti arribar r�pid al target.
  AddReward(-0.001f);
  // Si l'agent surt massa lluny de la zona de joc, considerem que ha fallat.
- if (Mathf.Abs(transform.localPosition.x) > arenaLimit + 2f ||
- Mathf.Abs(transform.localPosition.y) > arenaLimit + 2f)
+ if (Mathf.Abs(transform.localPosition.x) > arenaWidth / 2f + 2f ||
+ Mathf.Abs(transform.localPosition.y) > arenaHeight / 2f + 2f)
  {
  // Penalitzaci� per error greu
  AddReward(-1f);
