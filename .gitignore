@@ -1,0 +1,49 @@
+# --- Unity (Carpeta J2P) ---
+J2P/[Ll]ibrary/
+J2P/[Tt]emp/
+J2P/[Oo]bj/
+J2P/[Bb]uild/
+J2P/[Bb]uilds/
+J2P/[Ll]ogs/
+J2P/[Uu]ser[Ss]ettings/
+J2P/MemoryCaptures/
+J2P/Recording/
+J2P/AssertionResults/
+
+# Archivos de proyecto de Unity que se regeneran
+J2P/*.csproj
+J2P/*.sln
+J2P/*.suo
+J2P/*.user
+J2P/*.userprefs
+J2P/*.pidb
+J2P/*.booproj
+J2P/*.svd
+J2P/*.pdb
+J2P/*.opendb
+J2P/*.VC.db
+
+# --- Node.js ---
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# --- Documentación y archivos pesados ---
+# Si en /doc/ hay PDFs o archivos grandes que no quieres en Git:
+# doc/*.pdf
+
+# --- Archivos del Sistema ---
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
