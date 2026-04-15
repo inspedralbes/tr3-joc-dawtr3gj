@@ -290,7 +290,7 @@ public class SimpleAgent : Agent
 
  private void PrepareSceneRaycastColliders()
  {
- SpriteRenderer[] sceneSprites = FindObjectsByType<SpriteRenderer>(FindObjectsSortMode.None);
+ SpriteRenderer[] sceneSprites = FindObjectsByType<SpriteRenderer>();
  for (int i = 0; i < sceneSprites.Length; i++)
  {
  SpriteRenderer sceneSprite = sceneSprites[i];
@@ -392,7 +392,7 @@ public class SimpleAgent : Agent
  {
  return false;
  }
- SimpleAgent[] sceneAgents = FindObjectsByType<SimpleAgent>(FindObjectsSortMode.None);
+ SimpleAgent[] sceneAgents = FindObjectsByType<SimpleAgent>();
  for (int i = 0; i < sceneAgents.Length; i++)
  {
  SimpleAgent sceneAgent = sceneAgents[i];
