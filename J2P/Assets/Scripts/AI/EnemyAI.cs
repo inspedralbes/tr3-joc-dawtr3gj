@@ -1,21 +1,21 @@
-using System;
 using UnityEngine;
 
 namespace TankArena2D
 {
     [RequireComponent(typeof(TankMovement2D), typeof(TurretAim), typeof(Weapon))]
-    [RequireComponent(typeof(Health))]
+    [RequireComponent(typeof(Health), typeof(TankPerception2D))]
     public sealed class EnemyAI : MonoBehaviour, IEnemyAgent
     {
         [SerializeField] private Transform target;
         [SerializeField] private Health targetHealth;
-        [SerializeField, Min(0.5f)] private float detectionRange = 24f;
-        [SerializeField, Min(0.5f)] private float attackRange = 13f;
-        [SerializeField, Min(0f)] private float preferredDistance = 8f;
-        [SerializeField, Min(0f)] private float retreatDistance = 5f;
-        [SerializeField, Min(0f)] private float strafeStrength = 0.55f;
-        [SerializeField, Min(0.1f)] private float obstacleCheckDistance = 2.75f;
-        [SerializeField, Min(0.05f)] private float obstacleProbeRadius = 0.38f;
+        [SerializeField, Min(0.5f)] private float detectionRange = 28f;
+        [SerializeField, Min(0.5f)] private float attackRange = 14f;
+        [SerializeField, Min(0f)] private float preferredDistance = 8.5f;
+        [SerializeField, Min(0f)] private float retreatDistance = 4.5f;
+        [SerializeField, Min(0f)] private float strafeStrength = 0.6f;
+        [SerializeField, Min(0.1f)] private float searchDuration = 4.5f;
+        [SerializeField, Min(0.1f)] private float patrolChangeInterval = 2.5f;
+        [SerializeField, Min(0f)] private float patrolMoveStrength = 0.55f;
         [SerializeField, Min(0.1f)] private float stuckCheckInterval = 0.5f;
         [SerializeField, Min(0.01f)] private float stuckDistanceThreshold = 0.12f;
         [SerializeField, Min(0.1f)] private float unstuckDuration = 0.85f;
@@ -24,11 +24,13 @@ namespace TankArena2D
         private TurretAim turretAim;
         private Weapon weapon;
         private Health health;
-        private Collider2D[] selfColliders;
+        private TankPerception2D perception;
+        private Vector2 patrolDirection;
+        private Vector2 forcedMoveDirection;
         private Vector2 lastStuckCheckPosition;
         private float lastStuckCheckTime;
-        private Vector2 forcedMoveDirection;
         private float forcedMoveUntil;
+        private float nextPatrolChangeTime;
         private float strafeSign;
 
         private void Awake()
@@ -37,8 +39,9 @@ namespace TankArena2D
             turretAim = GetComponent<TurretAim>();
             weapon = GetComponent<Weapon>();
             health = GetComponent<Health>();
-            selfColliders = GetComponentsInChildren<Collider2D>(true);
-            strafeSign = UnityEngine.Random.value >= 0.5f ? 1f : -1f;
+            perception = GetComponent<TankPerception2D>();
+            strafeSign = Random.value >= 0.5f ? 1f : -1f;
+            ChoosePatrolDirection(true);
         }
 
         private void OnEnable()
@@ -48,6 +51,7 @@ namespace TankArena2D
                 health.Died += HandleDeath;
             }
 
+            movement.StopImmediate();
             lastStuckCheckPosition = transform.position;
             lastStuckCheckTime = Time.time;
         }
@@ -66,18 +70,22 @@ namespace TankArena2D
             float newAttackRange,
             float newPreferredDistance,
             float newRetreatDistance,
-            float newObstacleCheckDistance,
-            float newObstacleProbeRadius,
+            float _,
+            float __,
             float newStrafeStrength)
         {
+            perception ??= GetComponent<TankPerception2D>();
             SetTarget(newTarget);
             detectionRange = Mathf.Max(0.5f, newDetectionRange);
             attackRange = Mathf.Max(0.5f, newAttackRange);
             preferredDistance = Mathf.Max(0f, newPreferredDistance);
             retreatDistance = Mathf.Max(0f, newRetreatDistance);
-            obstacleCheckDistance = Mathf.Max(0.1f, newObstacleCheckDistance);
-            obstacleProbeRadius = Mathf.Max(0.05f, newObstacleProbeRadius);
             strafeStrength = Mathf.Max(0f, newStrafeStrength);
+
+            if (perception != null)
+            {
+                perception.Configure(null, 16, Mathf.Max(attackRange, 12f), detectionRange, true);
+            }
         }
 
         public void SetTarget(Transform newTarget)
@@ -89,8 +97,11 @@ namespace TankArena2D
         public void ResetAgent(Vector2 position)
         {
             transform.position = position;
+            movement.StopImmediate();
             forcedMoveDirection = Vector2.zero;
             forcedMoveUntil = 0f;
+            strafeSign = Random.value >= 0.5f ? 1f : -1f;
+            ChoosePatrolDirection(true);
             lastStuckCheckPosition = position;
             lastStuckCheckTime = Time.time;
 
@@ -109,216 +120,128 @@ namespace TankArena2D
                 return;
             }
 
-            if (target == null || targetHealth == null || targetHealth.IsDead)
+            perception.Scan(target);
+
+            Vector2 moveInput = Vector2.zero;
+            Vector2 aimDirection = turretAim.Forward;
+            bool shouldFire = false;
+
+            if (target != null && targetHealth != null && !targetHealth.IsDead)
             {
-                movement.SetMoveInput(Vector2.zero);
-                return;
+                Vector2 toTarget = (Vector2)target.position - (Vector2)transform.position;
+
+                if (perception.TargetDetected && perception.TargetDistance <= detectionRange)
+                {
+                    moveInput = EnemySteeringUtility.BuildCombatMove(
+                        perception,
+                        toTarget,
+                        attackRange,
+                        preferredDistance,
+                        retreatDistance,
+                        strafeSign,
+                        strafeStrength);
+
+                    aimDirection = perception.TargetDirection;
+                    shouldFire = perception.HasLineOfSight &&
+                                 perception.TargetDistance <= attackRange &&
+                                 Vector2.Dot(turretAim.Forward, perception.TargetDirection) > 0.92f;
+                }
+                else if (perception.HasLastKnownTarget && perception.TimeSinceLastSeen <= searchDuration)
+                {
+                    Vector2 toLastKnown = perception.LastKnownTargetPosition - (Vector2)transform.position;
+                    moveInput = EnemySteeringUtility.BuildSearchMove(perception, toLastKnown);
+                    aimDirection = toLastKnown.sqrMagnitude > 0.01f ? toLastKnown.normalized : turretAim.Forward;
+                }
+                else
+                {
+                    moveInput = BuildPatrolMove();
+                    aimDirection = moveInput.sqrMagnitude > 0.01f ? moveInput.normalized : patrolDirection;
+                }
+            }
+            else
+            {
+                moveInput = BuildPatrolMove();
+                aimDirection = moveInput.sqrMagnitude > 0.01f ? moveInput.normalized : patrolDirection;
             }
 
-            Vector2 currentPosition = transform.position;
-            Vector2 toTarget = (Vector2)target.position - currentPosition;
-            float sqrDistance = toTarget.sqrMagnitude;
+            moveInput = ApplyStuckRecovery(moveInput);
+            movement.SetMoveInput(moveInput);
 
-            if (sqrDistance > detectionRange * detectionRange)
+            if (aimDirection.sqrMagnitude > 0.001f)
             {
-                movement.SetMoveInput(Vector2.zero);
-                turretAim.AimInDirection(toTarget);
-                return;
+                turretAim.AimInDirection(aimDirection);
             }
 
-            turretAim.AimAtWorldPoint(target.position);
-
-            Vector2 moveCommand = BuildMovementCommand(toTarget);
-            movement.SetMoveInput(moveCommand);
-
-            if (sqrDistance <= attackRange * attackRange && HasLineOfSight())
+            if (shouldFire)
             {
                 weapon.TryFire(turretAim.Forward);
             }
 
-            UpdateStuckRecovery(moveCommand, currentPosition, toTarget);
+            UpdateStuckRecovery(moveInput);
         }
 
-        private Vector2 BuildMovementCommand(Vector2 toTarget)
+        private Vector2 BuildPatrolMove()
         {
-            float distance = toTarget.magnitude;
-            Vector2 directionToTarget = distance > 0.001f ? toTarget / distance : Vector2.zero;
-            Vector2 desired = Vector2.zero;
-
-            if (distance > preferredDistance)
+            if (Time.time >= nextPatrolChangeTime || perception.GetNormalizedClearance(patrolDirection) < 0.28f)
             {
-                desired += directionToTarget;
-            }
-            else if (distance < retreatDistance)
-            {
-                desired -= directionToTarget * 0.75f;
+                ChoosePatrolDirection(false);
             }
 
-            if (distance <= attackRange)
-            {
-                desired += Vector2.Perpendicular(directionToTarget) * strafeSign * strafeStrength;
-            }
+            return EnemySteeringUtility.BuildPatrolMove(perception, patrolDirection, patrolMoveStrength);
+        }
 
-            Vector2 referenceDirection = desired.sqrMagnitude > 0.0001f ? desired.normalized : directionToTarget;
-            desired += GetObstacleAvoidance(referenceDirection);
-
+        private Vector2 ApplyStuckRecovery(Vector2 moveInput)
+        {
             if (Time.time < forcedMoveUntil)
             {
-                desired += forcedMoveDirection;
+                moveInput += forcedMoveDirection;
             }
 
-            return Vector2.ClampMagnitude(desired, 1f);
+            return Vector2.ClampMagnitude(moveInput, 1f);
         }
 
-        private Vector2 GetObstacleAvoidance(Vector2 referenceDirection)
-        {
-            if (referenceDirection.sqrMagnitude < 0.0001f)
-            {
-                return Vector2.zero;
-            }
-
-            Vector2 avoidance = Vector2.zero;
-            Vector2 forward = referenceDirection.normalized;
-            Vector2 left = Rotate(forward, 30f);
-            Vector2 right = Rotate(forward, -30f);
-
-            avoidance += GetAvoidanceFromProbe(forward, 1.25f);
-            avoidance += GetAvoidanceFromProbe(left, 0.9f);
-            avoidance += GetAvoidanceFromProbe(right, 0.9f);
-
-            return avoidance;
-        }
-
-        private Vector2 GetAvoidanceFromProbe(Vector2 direction, float weight)
-        {
-            RaycastHit2D hit = FindBlockingHit(direction, obstacleCheckDistance);
-
-            if (hit.collider == null)
-            {
-                return Vector2.zero;
-            }
-
-            float proximity = 1f - Mathf.Clamp01(hit.distance / obstacleCheckDistance);
-            return hit.normal * weight * (proximity + 0.15f);
-        }
-
-        private RaycastHit2D FindBlockingHit(Vector2 direction, float distance)
-        {
-            RaycastHit2D[] hits = Physics2D.CircleCastAll(transform.position, obstacleProbeRadius, direction, distance);
-            Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
-
-            for (int i = 0; i < hits.Length; i++)
-            {
-                Collider2D hitCollider = hits[i].collider;
-
-                if (hitCollider == null || hitCollider.isTrigger)
-                {
-                    continue;
-                }
-
-                if (BelongsToSelf(hitCollider) || BelongsToTarget(hitCollider))
-                {
-                    continue;
-                }
-
-                return hits[i];
-            }
-
-            return default;
-        }
-
-        private bool HasLineOfSight()
-        {
-            Vector2 origin = weapon.Muzzle != null ? weapon.Muzzle.position : transform.position;
-            Vector2 toTarget = (Vector2)target.position - origin;
-            float distance = toTarget.magnitude;
-
-            if (distance <= 0.01f)
-            {
-                return true;
-            }
-
-            RaycastHit2D[] hits = Physics2D.RaycastAll(origin, toTarget.normalized, distance);
-            Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
-
-            for (int i = 0; i < hits.Length; i++)
-            {
-                Collider2D hitCollider = hits[i].collider;
-
-                if (hitCollider == null || hitCollider.isTrigger || BelongsToSelf(hitCollider))
-                {
-                    continue;
-                }
-
-                return BelongsToTarget(hitCollider);
-            }
-
-            return true;
-        }
-
-        private void UpdateStuckRecovery(Vector2 desiredMove, Vector2 currentPosition, Vector2 toTarget)
+        private void UpdateStuckRecovery(Vector2 desiredMove)
         {
             if (Time.time - lastStuckCheckTime < stuckCheckInterval)
             {
                 return;
             }
 
+            Vector2 currentPosition = transform.position;
             float movedDistance = Vector2.Distance(currentPosition, lastStuckCheckPosition);
 
-            if (desiredMove.sqrMagnitude > 0.2f && movedDistance < stuckDistanceThreshold)
+            if (desiredMove.sqrMagnitude > 0.18f && movedDistance < stuckDistanceThreshold)
             {
-                Vector2 escapeDirection = toTarget.sqrMagnitude > 0.01f
-                    ? Vector2.Perpendicular(toTarget.normalized) * strafeSign
-                    : UnityEngine.Random.insideUnitCircle.normalized;
+                Vector2 lateral = desiredMove.sqrMagnitude > 0.01f
+                    ? Vector2.Perpendicular(desiredMove.normalized) * (Random.value > 0.5f ? 1f : -1f)
+                    : Random.insideUnitCircle.normalized;
 
-                if (UnityEngine.Random.value > 0.5f)
-                {
-                    escapeDirection *= -1f;
-                }
-
-                forcedMoveDirection = escapeDirection;
+                forcedMoveDirection = perception.GetBestDirection(lateral);
                 forcedMoveUntil = Time.time + unstuckDuration;
                 strafeSign *= -1f;
+                ChoosePatrolDirection(false);
             }
 
             lastStuckCheckPosition = currentPosition;
             lastStuckCheckTime = Time.time;
         }
 
-        private bool BelongsToSelf(Collider2D hitCollider)
+        private void ChoosePatrolDirection(bool immediate)
         {
-            for (int i = 0; i < selfColliders.Length; i++)
+            patrolDirection = Random.insideUnitCircle.normalized;
+
+            if (patrolDirection.sqrMagnitude < 0.0001f)
             {
-                if (selfColliders[i] == hitCollider)
-                {
-                    return true;
-                }
+                patrolDirection = Vector2.right;
             }
 
-            return hitCollider.transform == transform || hitCollider.transform.IsChildOf(transform);
-        }
-
-        private bool BelongsToTarget(Collider2D hitCollider)
-        {
-            return target != null &&
-                   (hitCollider.transform == target || hitCollider.transform.IsChildOf(target));
+            nextPatrolChangeTime = Time.time + (immediate ? 0.5f : patrolChangeInterval);
         }
 
         private void HandleDeath(Health _, DamageInfo __)
         {
             movement.StopImmediate();
             enabled = false;
-        }
-
-        private static Vector2 Rotate(Vector2 vector, float degrees)
-        {
-            float radians = degrees * Mathf.Deg2Rad;
-            float sin = Mathf.Sin(radians);
-            float cos = Mathf.Cos(radians);
-
-            return new Vector2(
-                vector.x * cos - vector.y * sin,
-                vector.x * sin + vector.y * cos);
         }
     }
 }

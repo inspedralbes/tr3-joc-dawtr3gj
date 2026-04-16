@@ -16,16 +16,21 @@ namespace TankArena2D
         [SerializeField, Min(0f)] private float minDistanceFromPlayer = 8f;
         [SerializeField, Min(0f)] private float spawnPadding = 2f;
         [SerializeField, Min(0.01f)] private float spawnInterval = 0.35f;
+        [SerializeField, Min(0)] private int initialEnemyCount = 6;
+        [SerializeField, Min(0)] private int desiredAliveEnemies = 6;
+        [SerializeField, Min(0.1f)] private float respawnDelay = 3f;
+        [SerializeField] private bool autoRespawn = true;
 
         private readonly HashSet<GameObject> activeEnemies = new HashSet<GameObject>();
-        private Coroutine currentSpawnRoutine;
+        private Coroutine populationRoutine;
 
         public event Action<GameObject> EnemySpawned;
-        public event Action<GameObject> EnemyKilled;
+        public event Action<GameObject, DamageInfo> EnemyKilled;
 
         public int ActiveEnemyCount => activeEnemies.Count;
-        public bool IsSpawningWave => currentSpawnRoutine != null;
         public IReadOnlyCollection<GameObject> ActiveEnemies => activeEnemies;
+        public int DesiredAliveEnemies => desiredAliveEnemies;
+        public float RemainingRespawnTime { get; private set; }
 
         public void Configure(
             ArenaBounds bounds,
@@ -47,24 +52,40 @@ namespace TankArena2D
             enemyContainer = container;
         }
 
+        public void ConfigureRespawn(int initialCount, int desiredCount, float delay, bool enableAutoRespawn)
+        {
+            initialEnemyCount = Mathf.Max(0, initialCount);
+            desiredAliveEnemies = Mathf.Max(initialEnemyCount, desiredCount);
+            respawnDelay = Mathf.Max(0.1f, delay);
+            autoRespawn = enableAutoRespawn;
+        }
+
         public void SetPlayerTarget(Transform target)
         {
             playerTarget = target;
         }
 
-        public void CancelPendingSpawns()
+        public void StartAutoRespawn()
         {
-            if (currentSpawnRoutine != null)
+            StopAutoRespawn();
+
+            if (!autoRespawn)
             {
-                StopCoroutine(currentSpawnRoutine);
-                currentSpawnRoutine = null;
+                return;
             }
+
+            populationRoutine = StartCoroutine(MaintainPopulationRoutine());
         }
 
-        public void SpawnWave(int count)
+        public void StopAutoRespawn()
         {
-            CancelPendingSpawns();
-            currentSpawnRoutine = StartCoroutine(SpawnWaveRoutine(Mathf.Max(0, count)));
+            if (populationRoutine != null)
+            {
+                StopCoroutine(populationRoutine);
+                populationRoutine = null;
+            }
+
+            RemainingRespawnTime = 0f;
         }
 
         public GameObject SpawnEnemy()
@@ -130,9 +151,9 @@ namespace TankArena2D
                 Collider2D[] overlaps = Physics2D.OverlapCircleAll(candidate, spawnCheckRadius);
                 bool blocked = false;
 
-                for (int i = 0; i < overlaps.Length; i++)
+                for (int index = 0; index < overlaps.Length; index++)
                 {
-                    Collider2D overlap = overlaps[i];
+                    Collider2D overlap = overlaps[index];
 
                     if (overlap == null || overlap.isTrigger)
                     {
@@ -153,28 +174,59 @@ namespace TankArena2D
             return false;
         }
 
-        private IEnumerator SpawnWaveRoutine(int count)
+        private IEnumerator MaintainPopulationRoutine()
         {
-            for (int i = 0; i < count; i++)
+            while (activeEnemies.Count < initialEnemyCount)
             {
                 SpawnEnemy();
 
-                if (i < count - 1)
+                if (spawnInterval > 0f)
                 {
                     yield return new WaitForSeconds(spawnInterval);
                 }
+                else
+                {
+                    yield return null;
+                }
             }
 
-            currentSpawnRoutine = null;
+            while (autoRespawn)
+            {
+                if (activeEnemies.Count >= desiredAliveEnemies)
+                {
+                    RemainingRespawnTime = 0f;
+                    yield return null;
+                    continue;
+                }
+
+                RemainingRespawnTime = respawnDelay;
+
+                while (RemainingRespawnTime > 0f && activeEnemies.Count < desiredAliveEnemies)
+                {
+                    RemainingRespawnTime -= Time.deltaTime;
+                    yield return null;
+                }
+
+                RemainingRespawnTime = 0f;
+
+                if (activeEnemies.Count < desiredAliveEnemies)
+                {
+                    SpawnEnemy();
+
+                    if (spawnInterval > 0f)
+                    {
+                        yield return new WaitForSeconds(spawnInterval);
+                    }
+                }
+            }
         }
 
         private void HandleEnemyDeath(Health health, DamageInfo damage)
         {
             health.Died -= HandleEnemyDeath;
             GameObject enemyObject = health.gameObject;
-
             activeEnemies.Remove(enemyObject);
-            EnemyKilled?.Invoke(enemyObject);
+            EnemyKilled?.Invoke(enemyObject, damage);
             Destroy(enemyObject);
         }
 
@@ -182,9 +234,9 @@ namespace TankArena2D
         {
             MonoBehaviour[] components = enemyObject.GetComponents<MonoBehaviour>();
 
-            for (int i = 0; i < components.Length; i++)
+            for (int index = 0; index < components.Length; index++)
             {
-                if (components[i] is IEnemyAgent enemyAgent)
+                if (components[index] is IEnemyAgent enemyAgent)
                 {
                     return enemyAgent;
                 }

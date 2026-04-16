@@ -8,19 +8,27 @@ namespace TankArena2D
         [SerializeField] private ArenaBounds arenaBounds;
         [SerializeField] private SpawnManager spawnManager;
         [SerializeField] private PlayerController player;
-        [SerializeField, Min(1)] private int startingWaveSize = 4;
-        [SerializeField, Min(0)] private int waveIncreasePerWave = 2;
-        [SerializeField, Min(0f)] private float timeBetweenWaves = 2.5f;
-        [SerializeField, Min(0f)] private float playerRespawnDelay = 3f;
+        [SerializeField, Min(0)] private int initialEnemyCount = 6;
+        [SerializeField, Min(0)] private int maxAliveEnemies = 6;
+        [SerializeField, Min(0.1f)] private float enemyRespawnDelay = 3f;
+        [SerializeField, Min(0f)] private float playerRespawnDelay = 2.5f;
+        [SerializeField, Min(1)] private int maxPlayerLives = 3;
+        [SerializeField, Min(1)] private int baseKillScore = 100;
+        [SerializeField, Min(0f)] private float extraScorePerSurvivalSecond = 4f;
 
-        private Coroutine nextWaveRoutine;
         private Coroutine playerRespawnRoutine;
         private bool subscriptionsActive;
+        private bool sessionSubmitted;
 
-        public int CurrentWave { get; private set; }
         public int TotalKills { get; private set; }
+        public int PlayerKillCount { get; private set; }
+        public int Score { get; private set; }
+        public int RemainingLives { get; private set; }
+        public int MaxPlayerLives => maxPlayerLives;
+        public float SurvivalTime { get; private set; }
         public float RespawnCountdown { get; private set; }
-        public float NextWaveCountdown { get; private set; }
+        public float EnemyRespawnCountdown => spawnManager != null ? spawnManager.RemainingRespawnTime : 0f;
+        public bool IsGameOver { get; private set; }
         public PlayerController Player => player;
         public SpawnManager Spawner => spawnManager;
 
@@ -31,35 +39,68 @@ namespace TankArena2D
 
         private void OnDisable()
         {
+            if (spawnManager != null)
+            {
+                spawnManager.StopAutoRespawn();
+            }
+
             UnhookSubscriptions();
+        }
+
+        private void OnDestroy()
+        {
+            SubmitSessionStats();
         }
 
         private void Start()
         {
-            if (CurrentWave == 0)
+            ProfileService.EnsureInstance().BeginMatch();
+            RemainingLives = maxPlayerLives;
+            IsGameOver = false;
+
+            if (spawnManager != null)
             {
-                BeginNextWave();
+                spawnManager.ConfigureRespawn(initialEnemyCount, maxAliveEnemies, enemyRespawnDelay, true);
+                spawnManager.StartAutoRespawn();
             }
+        }
+
+        private void Update()
+        {
+            if (IsGameOver)
+            {
+                return;
+            }
+
+            SurvivalTime += Time.deltaTime;
         }
 
         public void Configure(
             ArenaBounds bounds,
             SpawnManager spawner,
             PlayerController playerController,
-            int initialWaveSize,
-            int waveIncrease,
-            float waveDelay,
-            float respawnDelay)
+            int initialEnemies,
+            int maxEnemies,
+            float enemyDelay,
+            float playerDelay,
+            int playerLives = 3,
+            int killScore = 100,
+            float bonusPerSecond = 4f)
         {
             UnhookSubscriptions();
 
             arenaBounds = bounds;
             spawnManager = spawner;
             player = playerController;
-            startingWaveSize = Mathf.Max(1, initialWaveSize);
-            waveIncreasePerWave = Mathf.Max(0, waveIncrease);
-            timeBetweenWaves = Mathf.Max(0f, waveDelay);
-            playerRespawnDelay = Mathf.Max(0f, respawnDelay);
+            initialEnemyCount = Mathf.Max(0, initialEnemies);
+            maxAliveEnemies = Mathf.Max(initialEnemyCount, maxEnemies);
+            enemyRespawnDelay = Mathf.Max(0.1f, enemyDelay);
+            playerRespawnDelay = Mathf.Max(0f, playerDelay);
+            maxPlayerLives = Mathf.Max(1, playerLives);
+            baseKillScore = Mathf.Max(1, killScore);
+            extraScorePerSurvivalSecond = Mathf.Max(0f, bonusPerSecond);
+            RemainingLives = maxPlayerLives;
+            IsGameOver = false;
 
             HookSubscriptions();
         }
@@ -116,25 +157,37 @@ namespace TankArena2D
             subscriptionsActive = false;
         }
 
-        private void HandleEnemyKilled(GameObject enemy)
+        private void HandleEnemyKilled(GameObject _, DamageInfo damage)
         {
+            if (IsGameOver)
+            {
+                return;
+            }
+
             TotalKills++;
 
-            if (spawnManager != null &&
-                spawnManager.ActiveEnemyCount == 0 &&
-                !spawnManager.IsSpawningWave)
+            if (player != null && damage.Source == player.gameObject)
             {
-                if (nextWaveRoutine != null)
-                {
-                    StopCoroutine(nextWaveRoutine);
-                }
-
-                nextWaveRoutine = StartCoroutine(BeginNextWaveAfterDelay());
+                PlayerKillCount++;
+                Score += CalculateKillScore();
             }
         }
 
         private void HandlePlayerDied(Health _, DamageInfo __)
         {
+            if (IsGameOver)
+            {
+                return;
+            }
+
+            RemainingLives = Mathf.Max(0, RemainingLives - 1);
+
+            if (RemainingLives <= 0)
+            {
+                TriggerGameOver();
+                return;
+            }
+
             if (playerRespawnRoutine != null)
             {
                 StopCoroutine(playerRespawnRoutine);
@@ -143,47 +196,34 @@ namespace TankArena2D
             playerRespawnRoutine = StartCoroutine(RespawnPlayerAfterDelay());
         }
 
-        private IEnumerator BeginNextWaveAfterDelay()
-        {
-            NextWaveCountdown = timeBetweenWaves;
-
-            while (NextWaveCountdown > 0f)
-            {
-                NextWaveCountdown -= Time.deltaTime;
-                yield return null;
-            }
-
-            NextWaveCountdown = 0f;
-            BeginNextWave();
-            nextWaveRoutine = null;
-        }
-
         private IEnumerator RespawnPlayerAfterDelay()
         {
             RespawnCountdown = playerRespawnDelay;
 
-            while (RespawnCountdown > 0f)
+            while (RespawnCountdown > 0f && !IsGameOver)
             {
                 RespawnCountdown -= Time.deltaTime;
                 yield return null;
             }
 
             RespawnCountdown = 0f;
-            RespawnPlayer();
+
+            if (!IsGameOver)
+            {
+                RespawnPlayer();
+            }
+
             playerRespawnRoutine = null;
         }
 
-        private void BeginNextWave()
+        private int CalculateKillScore()
         {
-            CurrentWave++;
-
-            int enemyCount = startingWaveSize + (CurrentWave - 1) * waveIncreasePerWave;
-            spawnManager?.SpawnWave(enemyCount);
+            return Mathf.Max(1, Mathf.RoundToInt(baseKillScore + SurvivalTime * extraScorePerSurvivalSecond));
         }
 
         private void RespawnPlayer()
         {
-            if (player == null)
+            if (player == null || IsGameOver)
             {
                 return;
             }
@@ -193,6 +233,42 @@ namespace TankArena2D
                 : Vector2.zero;
 
             player.RespawnAt(spawnPosition);
+        }
+
+        private void TriggerGameOver()
+        {
+            if (IsGameOver)
+            {
+                return;
+            }
+
+            IsGameOver = true;
+            RespawnCountdown = 0f;
+
+            if (playerRespawnRoutine != null)
+            {
+                StopCoroutine(playerRespawnRoutine);
+                playerRespawnRoutine = null;
+            }
+
+            if (spawnManager != null)
+            {
+                spawnManager.StopAutoRespawn();
+            }
+
+            SubmitSessionStats();
+            Time.timeScale = 0f;
+        }
+
+        private void SubmitSessionStats()
+        {
+            if (sessionSubmitted)
+            {
+                return;
+            }
+
+            sessionSubmitted = true;
+            ProfileService.EnsureInstance().EndMatch(Score, SurvivalTime, PlayerKillCount, true);
         }
     }
 }

@@ -9,46 +9,56 @@ namespace TankArena2D
 {
     [RequireComponent(typeof(TankMovement2D), typeof(TurretAim), typeof(Weapon))]
     [RequireComponent(typeof(Health), typeof(BehaviorParameters), typeof(DecisionRequester))]
-    [RequireComponent(typeof(FactionMember))]
+    [RequireComponent(typeof(FactionMember), typeof(TankPerception2D))]
     public sealed class EnemyMlAgent : Agent, IEnemyAgent
     {
         [SerializeField] private Transform target;
         [SerializeField] private Health targetHealth;
-        [SerializeField, Min(0.5f)] private float detectionRange = 26f;
-        [SerializeField, Min(0.5f)] private float attackRange = 13.5f;
-        [SerializeField, Min(0f)] private float preferredDistance = 8f;
-        [SerializeField, Min(0f)] private float retreatDistance = 4.8f;
-        [SerializeField, Min(0f)] private float strafeStrength = 0.58f;
-        [SerializeField, Min(0.1f)] private float obstacleCheckDistance = 2.8f;
-        [SerializeField, Min(0.05f)] private float obstacleProbeRadius = 0.38f;
+        [SerializeField] private TrainingArenaManager trainingArena;
+        [SerializeField] private EnemyAgentExecutionMode executionMode = EnemyAgentExecutionMode.Auto;
+        [SerializeField, Min(0.5f)] private float detectionRange = 28f;
+        [SerializeField, Min(0.5f)] private float attackRange = 14f;
+        [SerializeField, Min(0f)] private float preferredDistance = 8.5f;
+        [SerializeField, Min(0f)] private float retreatDistance = 4.5f;
+        [SerializeField, Min(0f)] private float strafeStrength = 0.6f;
+        [SerializeField, Min(0.1f)] private float searchDuration = 4.5f;
+        [SerializeField, Min(0.1f)] private float patrolChangeInterval = 2.4f;
         [SerializeField, Min(1)] private int decisionPeriod = 5;
         [SerializeField] private string behaviorName = "TankArenaEnemy";
         [SerializeField] private ModelAsset trainedModel;
         [SerializeField] private bool deterministicInference = true;
+        [SerializeField] private float stepPenalty = -0.0006f;
+        [SerializeField] private float approachRewardScale = 0.01f;
+        [SerializeField] private float lineOfSightReward = 0.0015f;
+        [SerializeField] private float aimAlignmentReward = 0.001f;
+        [SerializeField] private float successfulShotReward = 0.015f;
+        [SerializeField] private float targetDamageReward = 0.08f;
+        [SerializeField] private float targetKillReward = 1.2f;
+        [SerializeField] private float selfDamagePenalty = -0.05f;
+        [SerializeField] private float deathPenalty = -1f;
+        [SerializeField] private float obstacleCollisionPenalty = -0.015f;
+        [SerializeField] private float blockedPenalty = -0.0025f;
+
+        private const int BaseObservationCount = 16;
 
         private TankMovement2D movement;
         private TurretAim turretAim;
         private Weapon weapon;
         private Health health;
+        private TankPerception2D perception;
         private BehaviorParameters behaviorParameters;
         private DecisionRequester decisionRequester;
-        private Collider2D[] selfColliders;
+        private Vector2 heuristicPatrolDirection;
         private float heuristicStrafeSign;
+        private float nextHeuristicPatrolChangeTime;
         private float previousDistanceToTarget = -1f;
 
         protected override void Awake()
         {
             base.Awake();
-
-            movement = GetComponent<TankMovement2D>();
-            turretAim = GetComponent<TurretAim>();
-            weapon = GetComponent<Weapon>();
-            health = GetComponent<Health>();
-            behaviorParameters = GetComponent<BehaviorParameters>();
-            decisionRequester = GetComponent<DecisionRequester>();
-            selfColliders = GetComponentsInChildren<Collider2D>(true);
+            CacheComponents();
             heuristicStrafeSign = UnityEngine.Random.value >= 0.5f ? 1f : -1f;
-
+            ChooseHeuristicPatrolDirection(true);
             ConfigureBehavior();
         }
 
@@ -60,24 +70,15 @@ namespace TankArena2D
         protected override void OnEnable()
         {
             base.OnEnable();
-
-            if (health != null)
-            {
-                health.Died += HandleSelfDeath;
-            }
-
+            CacheComponents();
+            SubscribeToSelf();
             SubscribeToTarget();
         }
 
         protected override void OnDisable()
         {
             UnsubscribeFromTarget();
-
-            if (health != null)
-            {
-                health.Died -= HandleSelfDeath;
-            }
-
+            UnsubscribeFromSelf();
             base.OnDisable();
         }
 
@@ -87,75 +88,129 @@ namespace TankArena2D
             float newAttackRange,
             float newPreferredDistance,
             float newRetreatDistance,
-            float newObstacleCheckDistance,
-            float newObstacleProbeRadius,
+            float _,
+            float __,
             float newStrafeStrength,
             ModelAsset model = null,
             string newBehaviorName = "TankArenaEnemy",
-            int newDecisionPeriod = 5)
+            int newDecisionPeriod = 5,
+            EnemyAgentExecutionMode mode = EnemyAgentExecutionMode.Auto,
+            TrainingArenaManager arenaManager = null)
         {
-            trainedModel = model;
+            CacheComponents();
+
+            target = newTarget;
+            targetHealth = target != null ? target.GetComponent<Health>() : null;
+            trainingArena = arenaManager;
+            executionMode = mode;
             behaviorName = newBehaviorName;
+            trainedModel = model;
             decisionPeriod = Mathf.Max(1, newDecisionPeriod);
             detectionRange = Mathf.Max(0.5f, newDetectionRange);
             attackRange = Mathf.Max(0.5f, newAttackRange);
             preferredDistance = Mathf.Max(0f, newPreferredDistance);
             retreatDistance = Mathf.Max(0f, newRetreatDistance);
-            obstacleCheckDistance = Mathf.Max(0.1f, newObstacleCheckDistance);
-            obstacleProbeRadius = Mathf.Max(0.05f, newObstacleProbeRadius);
             strafeStrength = Mathf.Max(0f, newStrafeStrength);
 
+            if (perception != null)
+            {
+                perception.Configure(null, 16, Mathf.Max(attackRange, 12f), detectionRange, true);
+            }
+
             ConfigureBehavior();
-            SetTarget(newTarget);
+            SubscribeToTarget();
         }
 
         public void SetTarget(Transform newTarget)
         {
             UnsubscribeFromTarget();
-
             target = newTarget;
             targetHealth = target != null ? target.GetComponent<Health>() : null;
-
             SubscribeToTarget();
+        }
+
+        public void SetTrainingArena(TrainingArenaManager arena)
+        {
+            trainingArena = arena;
         }
 
         public void ResetAgent(Vector2 position)
         {
+            CacheComponents();
             transform.position = position;
-            movement.StopImmediate();
-            health.Revive();
             previousDistanceToTarget = -1f;
+            heuristicStrafeSign = UnityEngine.Random.value >= 0.5f ? 1f : -1f;
+            ChooseHeuristicPatrolDirection(true);
+            movement.StopImmediate();
+
+            if (health != null)
+            {
+                health.Revive();
+            }
+
+            enabled = true;
             RequestDecision();
         }
 
         public override void OnEpisodeBegin()
         {
-            movement.StopImmediate();
             previousDistanceToTarget = -1f;
+            ChooseHeuristicPatrolDirection(true);
+
+            if (trainingArena != null)
+            {
+                trainingArena.ResetEpisode(this);
+                return;
+            }
+
+            movement.StopImmediate();
+
+            if (health != null && health.IsDead)
+            {
+                health.Revive();
+            }
         }
 
         public override void CollectObservations(VectorSensor sensor)
         {
+            CacheComponents();
+            perception.Scan(target);
+
             Vector2 currentPosition = transform.position;
-            Vector2 velocity = movement.Velocity / Mathf.Max(0.1f, movement.MoveSpeed);
+            Vector2 velocity = movement != null
+                ? movement.Velocity / Mathf.Max(0.1f, movement.MoveSpeed)
+                : Vector2.zero;
             Vector2 toTarget = target != null ? (Vector2)target.position - currentPosition : Vector2.zero;
             float distance = toTarget.magnitude;
             Vector2 directionToTarget = distance > 0.001f ? toTarget / distance : Vector2.zero;
+            Vector2 turretForward = turretAim != null ? turretAim.Forward : Vector2.right;
 
             sensor.AddObservation(directionToTarget.x);
             sensor.AddObservation(directionToTarget.y);
-            sensor.AddObservation(Mathf.Clamp01(distance / detectionRange));
+            sensor.AddObservation(Mathf.Clamp01(distance / Mathf.Max(1f, detectionRange)));
             sensor.AddObservation(velocity.x);
             sensor.AddObservation(velocity.y);
+            sensor.AddObservation(turretForward.x);
+            sensor.AddObservation(turretForward.y);
             sensor.AddObservation(health != null ? health.CurrentHealth / health.MaxHealth : 0f);
-            sensor.AddObservation(targetHealth != null ? targetHealth.CurrentHealth / targetHealth.MaxHealth : 0f);
+            sensor.AddObservation(targetHealth != null && !targetHealth.IsDead ? targetHealth.CurrentHealth / targetHealth.MaxHealth : 0f);
             sensor.AddObservation(targetHealth != null && !targetHealth.IsDead ? 1f : 0f);
+            sensor.AddObservation(perception.TargetDetected ? 1f : 0f);
+            sensor.AddObservation(perception.HasLineOfSight ? 1f : 0f);
             sensor.AddObservation(distance <= attackRange ? 1f : 0f);
-            sensor.AddObservation(HasLineOfSight() ? 1f : 0f);
-            sensor.AddObservation(weapon.CanFire ? 1f : 0f);
-            sensor.AddObservation(ProbeClearance(turretAim.Forward));
-            sensor.AddObservation(ProbeClearance(Rotate(turretAim.Forward, 30f)));
-            sensor.AddObservation(ProbeClearance(Rotate(turretAim.Forward, -30f)));
+            sensor.AddObservation(weapon != null ? weapon.CooldownRemainingNormalized : 0f);
+            sensor.AddObservation(weapon != null && weapon.CanFire ? 1f : 0f);
+            sensor.AddObservation(Mathf.Clamp01(perception.TimeSinceLastSeen / Mathf.Max(0.1f, searchDuration)));
+
+            for (int index = 0; index < perception.RaySamples.Count; index++)
+            {
+                TankPerception2D.RaySample sample = perception.RaySamples[index];
+                sensor.AddObservation(sample.NormalizedDistance);
+                sensor.AddObservation(sample.HitType == PerceptionHitType.Target ? 1f : 0f);
+                sensor.AddObservation(sample.HitType == PerceptionHitType.Obstacle ? 1f : 0f);
+                sensor.AddObservation(sample.HitType == PerceptionHitType.Boundary ? 1f : 0f);
+                sensor.AddObservation(sample.HitType == PerceptionHitType.OtherActor ? 1f : 0f);
+            }
         }
 
         public override void OnActionReceived(ActionBuffers actions)
@@ -166,92 +221,153 @@ namespace TankArena2D
                 return;
             }
 
-            if (target == null || targetHealth == null || targetHealth.IsDead)
+            perception.Scan(target);
+
+            Vector2 moveInput = new Vector2(
+                DecodeBranch(actions.DiscreteActions[0]),
+                DecodeBranch(actions.DiscreteActions[1]));
+
+            Vector2 aimInput = new Vector2(
+                DecodeBranch(actions.DiscreteActions[2]),
+                DecodeBranch(actions.DiscreteActions[3]));
+
+            int fireAction = actions.DiscreteActions[4];
+            moveInput = Vector2.ClampMagnitude(moveInput, 1f);
+            movement.SetMoveInput(moveInput);
+
+            if (aimInput.sqrMagnitude > 0.01f)
             {
-                movement.SetMoveInput(Vector2.zero);
-                return;
+                turretAim.AimInDirection(aimInput.normalized);
             }
 
-            int xAction = actions.DiscreteActions[0];
-            int yAction = actions.DiscreteActions[1];
-            int fireAction = actions.DiscreteActions[2];
-
-            Vector2 moveInput = new Vector2(DecodeBranch(xAction), DecodeBranch(yAction));
-            movement.SetMoveInput(Vector2.ClampMagnitude(moveInput, 1f));
-
-            turretAim.AimAtWorldPoint(target.position);
-
-            Vector2 toTarget = (Vector2)target.position - (Vector2)transform.position;
+            Vector2 toTarget = target != null ? (Vector2)target.position - (Vector2)transform.position : Vector2.zero;
             float distanceToTarget = toTarget.magnitude;
 
-            if (fireAction == 1 && distanceToTarget <= attackRange && HasLineOfSight())
+            if (fireAction == 1 && weapon != null && weapon.TryFire(turretAim.Forward))
             {
-                if (weapon.TryFire(turretAim.Forward))
+                if (perception.HasLineOfSight &&
+                    distanceToTarget <= attackRange &&
+                    distanceToTarget > 0.001f &&
+                    Vector2.Dot(turretAim.Forward, toTarget / distanceToTarget) > 0.9f)
                 {
-                    AddReward(0.0025f);
+                    AddReward(successfulShotReward);
+                }
+                else
+                {
+                    AddReward(-successfulShotReward * 0.2f);
                 }
             }
 
-            if (previousDistanceToTarget >= 0f)
-            {
-                float distanceDelta = previousDistanceToTarget - distanceToTarget;
-                AddReward(Mathf.Clamp(distanceDelta * 0.01f, -0.01f, 0.01f));
-            }
-
-            previousDistanceToTarget = distanceToTarget;
-            AddReward(-0.0005f);
+            ApplyDenseRewards(moveInput, distanceToTarget);
         }
 
         public override void Heuristic(in ActionBuffers actionsOut)
         {
             ActionSegment<int> actions = actionsOut.DiscreteActions;
+            perception.Scan(target);
+
             Vector2 move = Vector2.zero;
+            Vector2 aim = turretAim != null ? turretAim.Forward : Vector2.right;
             bool shouldFire = false;
 
             if (target != null && targetHealth != null && !targetHealth.IsDead)
             {
                 Vector2 toTarget = (Vector2)target.position - (Vector2)transform.position;
-                float sqrDistance = toTarget.sqrMagnitude;
 
-                if (sqrDistance <= detectionRange * detectionRange)
+                if (perception.TargetDetected)
                 {
-                    move = BuildHeuristicMove(toTarget);
-                    shouldFire = sqrDistance <= attackRange * attackRange && HasLineOfSight();
+                    move = EnemySteeringUtility.BuildCombatMove(
+                        perception,
+                        toTarget,
+                        attackRange,
+                        preferredDistance,
+                        retreatDistance,
+                        heuristicStrafeSign,
+                        strafeStrength);
+
+                    aim = toTarget.sqrMagnitude > 0.01f ? toTarget.normalized : aim;
+                    shouldFire = perception.HasLineOfSight && perception.TargetDistance <= attackRange;
+                }
+                else if (perception.HasLastKnownTarget && perception.TimeSinceLastSeen <= searchDuration)
+                {
+                    Vector2 toLastKnown = perception.LastKnownTargetPosition - (Vector2)transform.position;
+                    move = EnemySteeringUtility.BuildSearchMove(perception, toLastKnown);
+                    aim = toLastKnown.sqrMagnitude > 0.01f ? toLastKnown.normalized : aim;
+                }
+                else
+                {
+                    if (Time.time >= nextHeuristicPatrolChangeTime || perception.GetNormalizedClearance(heuristicPatrolDirection) < 0.28f)
+                    {
+                        ChooseHeuristicPatrolDirection(false);
+                    }
+
+                    move = EnemySteeringUtility.BuildPatrolMove(perception, heuristicPatrolDirection, 0.55f);
+                    aim = move.sqrMagnitude > 0.01f ? move.normalized : heuristicPatrolDirection;
                 }
             }
 
             actions[0] = EncodeBranch(move.x);
             actions[1] = EncodeBranch(move.y);
-            actions[2] = shouldFire ? 1 : 0;
+            actions[2] = EncodeBranch(aim.x);
+            actions[3] = EncodeBranch(aim.y);
+            actions[4] = shouldFire ? 1 : 0;
         }
 
-        private void Update()
+        private void ApplyDenseRewards(Vector2 moveInput, float distanceToTarget)
         {
-            if (health == null || health.IsDead)
+            AddReward(stepPenalty);
+
+            if (target == null || targetHealth == null || targetHealth.IsDead)
             {
+                previousDistanceToTarget = -1f;
                 return;
             }
 
-            if (target != null && targetHealth != null && !targetHealth.IsDead)
+            if (previousDistanceToTarget >= 0f && !perception.HasLineOfSight)
             {
-                turretAim.AimAtWorldPoint(target.position);
+                float distanceDelta = previousDistanceToTarget - distanceToTarget;
+                AddReward(Mathf.Clamp(distanceDelta * approachRewardScale, -0.01f, 0.01f));
             }
+
+            if (perception.HasLineOfSight)
+            {
+                float distanceWindow = Mathf.Max(1f, attackRange);
+                float rangeQuality = 1f - Mathf.Clamp01(Mathf.Abs(distanceToTarget - preferredDistance) / distanceWindow);
+                AddReward(rangeQuality * lineOfSightReward);
+
+                if (distanceToTarget > 0.001f)
+                {
+                    Vector2 targetDirection = ((Vector2)target.position - (Vector2)transform.position) / distanceToTarget;
+                    float aimAlignment = Mathf.Max(0f, Vector2.Dot(turretAim.Forward, targetDirection));
+                    AddReward(aimAlignment * aimAlignmentReward);
+                }
+            }
+
+            if (moveInput.sqrMagnitude > 0.25f && movement.Velocity.sqrMagnitude < 0.025f)
+            {
+                AddReward(blockedPenalty);
+            }
+
+            previousDistanceToTarget = distanceToTarget;
         }
 
         private void ConfigureBehavior()
         {
-            if (behaviorParameters == null || decisionRequester == null)
+            CacheComponents();
+
+            if (behaviorParameters == null || decisionRequester == null || perception == null)
             {
                 return;
             }
 
             var brainParameters = behaviorParameters.BrainParameters;
-            brainParameters.VectorObservationSize = 14;
+            brainParameters.VectorObservationSize = BaseObservationCount + perception.RayCount * 5;
             brainParameters.NumStackedVectorObservations = 1;
-            brainParameters.ActionSpec = ActionSpec.MakeDiscrete(3, 3, 2);
+            brainParameters.ActionSpec = ActionSpec.MakeDiscrete(3, 3, 3, 3, 2);
+
             behaviorParameters.BehaviorName = behaviorName;
-            behaviorParameters.BehaviorType = BehaviorType.Default;
-            behaviorParameters.Model = trainedModel;
+            behaviorParameters.BehaviorType = ResolveBehaviorType();
+            behaviorParameters.Model = executionMode == EnemyAgentExecutionMode.Training ? null : trainedModel;
             behaviorParameters.DeterministicInference = deterministicInference;
             behaviorParameters.TeamId = 1;
 
@@ -260,185 +376,128 @@ namespace TankArena2D
             decisionRequester.TakeActionsBetweenDecisions = true;
         }
 
-        private Vector2 BuildHeuristicMove(Vector2 toTarget)
+        private BehaviorType ResolveBehaviorType()
         {
-            float distance = toTarget.magnitude;
-            Vector2 directionToTarget = distance > 0.001f ? toTarget / distance : Vector2.zero;
-            Vector2 desired = Vector2.zero;
-
-            if (distance > preferredDistance)
+            return executionMode switch
             {
-                desired += directionToTarget;
-            }
-            else if (distance < retreatDistance)
-            {
-                desired -= directionToTarget * 0.8f;
-            }
-
-            if (distance <= attackRange)
-            {
-                desired += Vector2.Perpendicular(directionToTarget) * heuristicStrafeSign * strafeStrength;
-            }
-
-            Vector2 referenceDirection = desired.sqrMagnitude > 0.0001f ? desired.normalized : directionToTarget;
-            desired += GetObstacleAvoidance(referenceDirection);
-            return Vector2.ClampMagnitude(desired, 1f);
+                EnemyAgentExecutionMode.HeuristicOnly => BehaviorType.HeuristicOnly,
+                EnemyAgentExecutionMode.InferenceOnly => BehaviorType.InferenceOnly,
+                _ => BehaviorType.Default
+            };
         }
 
-        private Vector2 GetObstacleAvoidance(Vector2 referenceDirection)
+        private void SubscribeToSelf()
         {
-            if (referenceDirection.sqrMagnitude < 0.0001f)
+            if (health == null)
             {
-                return Vector2.zero;
+                return;
             }
 
-            Vector2 avoidance = Vector2.zero;
-            Vector2 forward = referenceDirection.normalized;
-            Vector2 left = Rotate(forward, 30f);
-            Vector2 right = Rotate(forward, -30f);
-
-            avoidance += GetAvoidanceFromProbe(forward, 1.25f);
-            avoidance += GetAvoidanceFromProbe(left, 0.9f);
-            avoidance += GetAvoidanceFromProbe(right, 0.9f);
-            return avoidance;
+            health.Damaged -= HandleSelfDamaged;
+            health.Died -= HandleSelfDeath;
+            health.Damaged += HandleSelfDamaged;
+            health.Died += HandleSelfDeath;
         }
 
-        private Vector2 GetAvoidanceFromProbe(Vector2 direction, float weight)
+        private void UnsubscribeFromSelf()
         {
-            RaycastHit2D hit = FindBlockingHit(direction, obstacleCheckDistance);
-
-            if (hit.collider == null)
+            if (health == null)
             {
-                return Vector2.zero;
+                return;
             }
 
-            float proximity = 1f - Mathf.Clamp01(hit.distance / obstacleCheckDistance);
-            return hit.normal * weight * (proximity + 0.15f);
-        }
-
-        private float ProbeClearance(Vector2 direction)
-        {
-            if (direction.sqrMagnitude < 0.0001f)
-            {
-                return 1f;
-            }
-
-            RaycastHit2D hit = FindBlockingHit(direction.normalized, obstacleCheckDistance);
-
-            if (hit.collider == null)
-            {
-                return 1f;
-            }
-
-            return Mathf.Clamp01(hit.distance / obstacleCheckDistance);
-        }
-
-        private RaycastHit2D FindBlockingHit(Vector2 direction, float distance)
-        {
-            RaycastHit2D[] hits = Physics2D.CircleCastAll(transform.position, obstacleProbeRadius, direction, distance);
-
-            System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
-
-            for (int i = 0; i < hits.Length; i++)
-            {
-                Collider2D hitCollider = hits[i].collider;
-
-                if (hitCollider == null || hitCollider.isTrigger)
-                {
-                    continue;
-                }
-
-                if (BelongsToSelf(hitCollider) || BelongsToTarget(hitCollider))
-                {
-                    continue;
-                }
-
-                return hits[i];
-            }
-
-            return default;
-        }
-
-        private bool HasLineOfSight()
-        {
-            if (target == null)
-            {
-                return false;
-            }
-
-            Vector2 origin = weapon.Muzzle != null ? weapon.Muzzle.position : transform.position;
-            Vector2 toTarget = (Vector2)target.position - origin;
-            float distance = toTarget.magnitude;
-
-            if (distance <= 0.01f)
-            {
-                return true;
-            }
-
-            RaycastHit2D[] hits = Physics2D.RaycastAll(origin, toTarget.normalized, distance);
-            System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
-
-            for (int i = 0; i < hits.Length; i++)
-            {
-                Collider2D hitCollider = hits[i].collider;
-
-                if (hitCollider == null || hitCollider.isTrigger || BelongsToSelf(hitCollider))
-                {
-                    continue;
-                }
-
-                return BelongsToTarget(hitCollider);
-            }
-
-            return true;
-        }
-
-        private bool BelongsToSelf(Collider2D hitCollider)
-        {
-            for (int i = 0; i < selfColliders.Length; i++)
-            {
-                if (selfColliders[i] == hitCollider)
-                {
-                    return true;
-                }
-            }
-
-            return hitCollider.transform == transform || hitCollider.transform.IsChildOf(transform);
-        }
-
-        private bool BelongsToTarget(Collider2D hitCollider)
-        {
-            return target != null &&
-                   (hitCollider.transform == target || hitCollider.transform.IsChildOf(target));
+            health.Damaged -= HandleSelfDamaged;
+            health.Died -= HandleSelfDeath;
         }
 
         private void SubscribeToTarget()
         {
-            if (targetHealth != null)
+            if (targetHealth == null)
             {
-                targetHealth.Died += HandleTargetDeath;
+                return;
             }
+
+            targetHealth.Damaged -= HandleTargetDamaged;
+            targetHealth.Died -= HandleTargetDeath;
+            targetHealth.Damaged += HandleTargetDamaged;
+            targetHealth.Died += HandleTargetDeath;
         }
 
         private void UnsubscribeFromTarget()
         {
-            if (targetHealth != null)
+            if (targetHealth == null)
             {
-                targetHealth.Died -= HandleTargetDeath;
+                return;
             }
+
+            targetHealth.Damaged -= HandleTargetDamaged;
+            targetHealth.Died -= HandleTargetDeath;
+        }
+
+        private void HandleSelfDamaged(Health _, DamageInfo __)
+        {
+            AddReward(selfDamagePenalty);
         }
 
         private void HandleSelfDeath(Health _, DamageInfo __)
         {
             movement.StopImmediate();
-            AddReward(-1f);
+            AddReward(deathPenalty);
             EndEpisode();
         }
 
-        private void HandleTargetDeath(Health _, DamageInfo __)
+        private void HandleTargetDamaged(Health _, DamageInfo damage)
         {
-            AddReward(1f);
+            if (damage.Source == gameObject)
+            {
+                AddReward(targetDamageReward);
+            }
+        }
+
+        private void HandleTargetDeath(Health _, DamageInfo damage)
+        {
+            if (damage.Source == gameObject)
+            {
+                AddReward(targetKillReward);
+            }
+
             EndEpisode();
+        }
+
+        private void OnCollisionEnter2D(Collision2D collision)
+        {
+            if (collision == null || collision.collider == null)
+            {
+                return;
+            }
+
+            if (collision.collider.GetComponentInParent<ArenaObstacle>() != null)
+            {
+                AddReward(obstacleCollisionPenalty);
+            }
+        }
+
+        private void CacheComponents()
+        {
+            movement ??= GetComponent<TankMovement2D>();
+            turretAim ??= GetComponent<TurretAim>();
+            weapon ??= GetComponent<Weapon>();
+            health ??= GetComponent<Health>();
+            perception ??= GetComponent<TankPerception2D>();
+            behaviorParameters ??= GetComponent<BehaviorParameters>();
+            decisionRequester ??= GetComponent<DecisionRequester>();
+        }
+
+        private void ChooseHeuristicPatrolDirection(bool immediate)
+        {
+            heuristicPatrolDirection = UnityEngine.Random.insideUnitCircle.normalized;
+
+            if (heuristicPatrolDirection.sqrMagnitude < 0.0001f)
+            {
+                heuristicPatrolDirection = Vector2.right;
+            }
+
+            nextHeuristicPatrolChangeTime = Time.time + (immediate ? 0.4f : patrolChangeInterval);
         }
 
         private static int EncodeBranch(float value)
@@ -464,17 +523,6 @@ namespace TankArena2D
                 2 => 1f,
                 _ => 0f
             };
-        }
-
-        private static Vector2 Rotate(Vector2 vector, float degrees)
-        {
-            float radians = degrees * Mathf.Deg2Rad;
-            float sin = Mathf.Sin(radians);
-            float cos = Mathf.Cos(radians);
-
-            return new Vector2(
-                vector.x * cos - vector.y * sin,
-                vector.x * sin + vector.y * cos);
         }
     }
 }

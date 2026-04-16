@@ -38,6 +38,8 @@ yarn-error.log*
 # --- Documentación y archivos pesados ---
 # Si en /doc/ hay PDFs o archivos grandes que no quieres en Git:
 # doc/*.pdf
+J2P/Documentation/
+J2P/**/*.md
 
 # --- Archivos del Sistema ---
 .DS_Store

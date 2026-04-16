@@ -29,29 +29,30 @@ namespace TankArena2D
             int maxHealth = health != null ? Mathf.CeilToInt(health.MaxHealth) : 0;
             int enemiesAlive = gameManager.Spawner != null ? gameManager.Spawner.ActiveEnemyCount : 0;
 
-            Rect panelRect = new Rect(Screen.width - 346f, 16f, 330f, 118f);
+            Rect panelRect = new Rect(Screen.width - 356f, 16f, 340f, 146f);
 
-            GUI.color = new Color(0f, 0f, 0f, 0.6f);
+            GUI.color = new Color(0f, 0f, 0f, 0.58f);
             GUI.Box(panelRect, GUIContent.none);
             GUI.color = Color.white;
 
             float contentX = panelRect.x + 12f;
-            GUI.Label(new Rect(contentX, 24f, 300f, 22f), "Tank Arena MVP", titleStyle);
-            GUI.Label(new Rect(contentX, 50f, 300f, 20f), $"Health: {currentHealth}/{maxHealth}", bodyStyle);
-            GUI.Label(new Rect(contentX, 72f, 300f, 20f), $"Wave: {gameManager.CurrentWave}   Enemies: {enemiesAlive}   Kills: {gameManager.TotalKills}", bodyStyle);
+            GUI.Label(new Rect(contentX, 24f, 300f, 22f), "Tank Arena", titleStyle);
+            GUI.Label(new Rect(contentX, 50f, 320f, 20f), $"Health: {currentHealth}/{maxHealth}   Lives: {gameManager.RemainingLives}/{gameManager.MaxPlayerLives}", bodyStyle);
+            GUI.Label(new Rect(contentX, 72f, 320f, 20f), $"Enemies: {enemiesAlive}   Kills: {gameManager.PlayerKillCount}   Score: {gameManager.Score}", bodyStyle);
+            GUI.Label(new Rect(contentX, 94f, 320f, 20f), $"Time: {gameManager.SurvivalTime:0.0}s   Respawn enemigo: {gameManager.EnemyRespawnCountdown:0.0}s", bodyStyle);
 
-            string status = "WASD move  |  Mouse aim  |  Left click shoot";
+            string status = "WASD mover  |  Raton apuntar  |  Click izq disparar";
 
-            if (player != null && !player.IsAlive)
+            if (gameManager.IsGameOver)
             {
-                status = $"Respawn in {Mathf.Max(0f, gameManager.RespawnCountdown):0.0}s";
+                status = "Partida terminada";
             }
-            else if (enemiesAlive == 0 && gameManager.NextWaveCountdown > 0f)
+            else if (player != null && !player.IsAlive)
             {
-                status = $"Next wave in {gameManager.NextWaveCountdown:0.0}s";
+                status = $"Reaparicion del jugador en {Mathf.Max(0f, gameManager.RespawnCountdown):0.0}s";
             }
 
-            GUI.Label(new Rect(contentX, 94f, 300f, 20f), status, bodyStyle);
+            GUI.Label(new Rect(contentX, 118f, 320f, 20f), status, bodyStyle);
         }
 
         private void EnsureStyles()
@@ -71,7 +72,7 @@ namespace TankArena2D
             bodyStyle = new GUIStyle(GUI.skin.label)
             {
                 fontSize = 13,
-                normal = { textColor = new Color(0.9f, 0.95f, 1f) }
+                normal = { textColor = new Color(0.92f, 0.95f, 1f) }
             };
         }
     }

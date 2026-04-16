@@ -19,6 +19,9 @@ namespace TankArena2D
         public Transform Muzzle => muzzle;
         public bool CanFire => Time.time >= nextShotTime;
         public float Cooldown => fireCooldown;
+        public float CooldownRemainingNormalized => fireCooldown <= 0.001f
+            ? 0f
+            : Mathf.Clamp01((nextShotTime - Time.time) / fireCooldown);
 
         private void Awake()
         {
