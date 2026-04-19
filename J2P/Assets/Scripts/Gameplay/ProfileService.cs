@@ -54,19 +54,28 @@ namespace TankArena2D
 
         private const string CurrentUserKey = "tankarena.current_user";
         private const string UsersKey = "tankarena.users";
+        private const string AuthTokenKey = "tankarena.auth.token";
+        private const string AuthUserIdKey = "tankarena.auth.user_id";
+        private const string ApiBaseUrlKey = "tankarena.backend.api_url";
+        private const string MatchModeKey = "tankarena.match_mode";
         private const int MaxStoredMatches = 8;
 
         private static ProfileService instance;
 
         private ProfileStats currentStats;
-        private readonly List<MatchRecord> recentMatches = new List<MatchRecord>();
+        private readonly List<MatchRecord> recentMatches = new();
         private float currentMatchStartTime;
         private bool matchRunning;
 
         public static ProfileService Instance => EnsureInstance();
         public static bool HasInstance => instance != null;
         public string CurrentUserName { get; private set; }
+        public string CurrentUserId { get; private set; }
+        public string AuthToken { get; private set; }
         public bool IsLoggedIn => !string.IsNullOrWhiteSpace(CurrentUserName);
+        public bool HasAuthenticatedSession => IsLoggedIn && !string.IsNullOrWhiteSpace(AuthToken);
+        public string ApiBaseUrl { get; private set; } = BackendSettings.DefaultApiBaseUrl;
+        public MatchMode SelectedMatchMode { get; private set; } = MatchMode.LocalSurvival;
         public ProfileStats CurrentStats => currentStats;
         public IReadOnlyList<MatchRecord> RecentMatches => recentMatches;
 
@@ -92,7 +101,7 @@ namespace TankArena2D
                 return instance;
             }
 
-            GameObject root = new GameObject("ProfileService");
+            GameObject root = new("ProfileService");
             instance = root.AddComponent<ProfileService>();
             DontDestroyOnLoad(root);
             instance.Initialize();
@@ -112,6 +121,27 @@ namespace TankArena2D
             Initialize();
         }
 
+        public void CompleteRemoteLogin(string userId, string userName, string authToken)
+        {
+            string normalized = NormalizeUserName(userName);
+
+            if (string.IsNullOrWhiteSpace(normalized) || string.IsNullOrWhiteSpace(authToken))
+            {
+                return;
+            }
+
+            CurrentUserName = normalized;
+            CurrentUserId = userId ?? string.Empty;
+            AuthToken = authToken;
+            RegisterUser(CurrentUserName);
+            PlayerPrefs.SetString(CurrentUserKey, CurrentUserName);
+            PlayerPrefs.SetString(AuthTokenKey, AuthToken);
+            PlayerPrefs.SetString(AuthUserIdKey, CurrentUserId);
+            LoadStats();
+            LoadMatchHistory();
+            PlayerPrefs.Save();
+        }
+
         public bool Login(string userName)
         {
             string normalized = NormalizeUserName(userName);
@@ -122,6 +152,8 @@ namespace TankArena2D
             }
 
             CurrentUserName = normalized;
+            CurrentUserId = string.Empty;
+            AuthToken = string.Empty;
             RegisterUser(CurrentUserName);
             PlayerPrefs.SetString(CurrentUserKey, CurrentUserName);
             LoadStats();
@@ -129,13 +161,38 @@ namespace TankArena2D
             return true;
         }
 
+        public void SetApiBaseUrl(string url)
+        {
+            ApiBaseUrl = BackendSettings.NormalizeApiBaseUrl(url);
+            PlayerPrefs.SetString(ApiBaseUrlKey, ApiBaseUrl);
+            PlayerPrefs.Save();
+        }
+
+        public string GetWebSocketUrl()
+        {
+            return BackendSettings.ToWebSocketUrl(ApiBaseUrl);
+        }
+
+        public void SetMatchMode(MatchMode mode)
+        {
+            SelectedMatchMode = mode;
+            PlayerPrefs.SetInt(MatchModeKey, (int)mode);
+            PlayerPrefs.Save();
+        }
+
         public void Logout()
         {
             EndMatch(0, 0f, 0, false);
             CurrentUserName = string.Empty;
+            CurrentUserId = string.Empty;
+            AuthToken = string.Empty;
             currentStats = default;
             recentMatches.Clear();
+            SelectedMatchMode = MatchMode.LocalSurvival;
             PlayerPrefs.DeleteKey(CurrentUserKey);
+            PlayerPrefs.DeleteKey(AuthTokenKey);
+            PlayerPrefs.DeleteKey(AuthUserIdKey);
+            PlayerPrefs.SetInt(MatchModeKey, (int)SelectedMatchMode);
             PlayerPrefs.Save();
         }
 
@@ -178,7 +235,7 @@ namespace TankArena2D
             currentStats.BestSurvivalTime = Mathf.Max(currentStats.BestSurvivalTime, resolvedSurvivalTime);
             currentStats.TotalPlayTime += resolvedSurvivalTime;
 
-            MatchRecord record = new MatchRecord
+            MatchRecord record = new()
             {
                 UserName = CurrentUserName,
                 Score = currentStats.LastScore,
@@ -200,7 +257,7 @@ namespace TankArena2D
 
         public IReadOnlyList<LeaderboardEntry> GetLeaderboard()
         {
-            List<LeaderboardEntry> entries = new List<LeaderboardEntry>();
+            List<LeaderboardEntry> entries = new();
             List<string> users = GetAllUsers();
 
             for (int index = 0; index < users.Count; index++)
@@ -248,12 +305,11 @@ namespace TankArena2D
 
         private void Initialize()
         {
-            if (!string.IsNullOrWhiteSpace(CurrentUserName))
-            {
-                return;
-            }
-
+            ApiBaseUrl = BackendSettings.NormalizeApiBaseUrl(PlayerPrefs.GetString(ApiBaseUrlKey, BackendSettings.DefaultApiBaseUrl));
+            SelectedMatchMode = (MatchMode)PlayerPrefs.GetInt(MatchModeKey, (int)MatchMode.LocalSurvival);
             CurrentUserName = NormalizeUserName(PlayerPrefs.GetString(CurrentUserKey, string.Empty));
+            CurrentUserId = PlayerPrefs.GetString(AuthUserIdKey, string.Empty);
+            AuthToken = PlayerPrefs.GetString(AuthTokenKey, string.Empty);
 
             if (IsLoggedIn)
             {
@@ -308,7 +364,7 @@ namespace TankArena2D
                 return;
             }
 
-            MatchHistoryCollection collection = new MatchHistoryCollection
+            MatchHistoryCollection collection = new()
             {
                 Matches = recentMatches.ToArray()
             };
@@ -334,7 +390,7 @@ namespace TankArena2D
             if (!alreadyExists)
             {
                 users.Add(userName);
-                UserCollection collection = new UserCollection
+                UserCollection collection = new()
                 {
                     Users = users.ToArray()
                 };

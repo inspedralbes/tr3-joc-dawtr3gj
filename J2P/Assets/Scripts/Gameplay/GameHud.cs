@@ -25,9 +25,11 @@ namespace TankArena2D
 
             PlayerController player = gameManager.Player;
             Health health = player != null ? player.Health : null;
+            Weapon weapon = player != null ? player.GetComponent<Weapon>() : null;
             int currentHealth = health != null ? Mathf.CeilToInt(health.CurrentHealth) : 0;
             int maxHealth = health != null ? Mathf.CeilToInt(health.MaxHealth) : 0;
             int enemiesAlive = gameManager.Spawner != null ? gameManager.Spawner.ActiveEnemyCount : 0;
+            string modeText = gameManager.IsMultiplayer ? "Online PvP" : "Survival";
 
             Rect panelRect = new Rect(Screen.width - 356f, 16f, 340f, 146f);
 
@@ -37,11 +39,17 @@ namespace TankArena2D
 
             float contentX = panelRect.x + 12f;
             GUI.Label(new Rect(contentX, 24f, 300f, 22f), "Tank Arena", titleStyle);
-            GUI.Label(new Rect(contentX, 50f, 320f, 20f), $"Health: {currentHealth}/{maxHealth}   Lives: {gameManager.RemainingLives}/{gameManager.MaxPlayerLives}", bodyStyle);
+            GUI.Label(new Rect(contentX, 50f, 320f, 20f), $"Modo: {modeText}   Health: {currentHealth}/{maxHealth}   Lives: {gameManager.RemainingLives}/{gameManager.MaxPlayerLives}", bodyStyle);
             GUI.Label(new Rect(contentX, 72f, 320f, 20f), $"Enemies: {enemiesAlive}   Kills: {gameManager.PlayerKillCount}   Score: {gameManager.Score}", bodyStyle);
             GUI.Label(new Rect(contentX, 94f, 320f, 20f), $"Time: {gameManager.SurvivalTime:0.0}s   Respawn enemigo: {gameManager.EnemyRespawnCountdown:0.0}s", bodyStyle);
 
-            string status = "WASD mover  |  Raton apuntar  |  Click izq disparar";
+            string ammoText = weapon == null
+                ? "Sin arma"
+                : weapon.IsReloading
+                    ? $"Recargando... {weapon.ReloadRemainingNormalized * weapon.ReloadDuration:0.0}s"
+                    : $"Municion: {weapon.AmmoInMagazine}/{weapon.MagazineSize}";
+
+            string status = $"WASD mover  |  R recargar  |  Raton apuntar  |  Click izq disparar  |  {ammoText}";
 
             if (gameManager.IsGameOver)
             {

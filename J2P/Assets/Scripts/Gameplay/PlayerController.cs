@@ -77,6 +77,11 @@ namespace TankArena2D
 
             AimAtMouse();
 
+            if (Input.GetKeyDown(KeyCode.R))
+            {
+                weapon.StartReload();
+            }
+
             bool firePressed = holdToFire ? Input.GetMouseButton(0) : Input.GetMouseButtonDown(0);
 
             if (firePressed)

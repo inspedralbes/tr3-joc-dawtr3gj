@@ -172,6 +172,11 @@ namespace TankArena2D
                 turretAim.AimInDirection(aimDirection);
             }
 
+            if (weapon != null && weapon.IsMagazineEmpty)
+            {
+                weapon.StartReload();
+            }
+
             if (shouldFire)
             {
                 weapon.TryFire(turretAim.Forward);

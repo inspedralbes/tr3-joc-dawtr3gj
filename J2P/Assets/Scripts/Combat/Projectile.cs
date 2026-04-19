@@ -137,6 +137,19 @@ namespace TankArena2D
             }
 
             Health health = other.GetComponentInParent<Health>();
+            NetworkActor targetActor = other.GetComponentInParent<NetworkActor>();
+            NetworkActor ownerActor = owner != null ? owner.GetComponent<NetworkActor>() : null;
+
+            if (targetActor != null && MultiplayerClient.Active != null)
+            {
+                if (ownerActor != null && ownerActor.IsLocalPlayer && !targetActor.IsLocalPlayer)
+                {
+                    MultiplayerClient.Active.ReportDamage(targetActor.NetworkId, damage, hitPoint);
+                }
+
+                Destroy(gameObject);
+                return;
+            }
 
             if (health != null && !health.IsDead)
             {

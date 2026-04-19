@@ -39,7 +39,7 @@ namespace TankArena2D
         [SerializeField] private float obstacleCollisionPenalty = -0.015f;
         [SerializeField] private float blockedPenalty = -0.0025f;
 
-        private const int BaseObservationCount = 16;
+        private const int BaseObservationCount = 18;
 
         private TankMovement2D movement;
         private TurretAim turretAim;
@@ -200,6 +200,8 @@ namespace TankArena2D
             sensor.AddObservation(distance <= attackRange ? 1f : 0f);
             sensor.AddObservation(weapon != null ? weapon.CooldownRemainingNormalized : 0f);
             sensor.AddObservation(weapon != null && weapon.CanFire ? 1f : 0f);
+            sensor.AddObservation(weapon != null ? weapon.ReloadRemainingNormalized : 0f);
+            sensor.AddObservation(weapon != null ? (float)weapon.AmmoInMagazine / Mathf.Max(1, weapon.MagazineSize) : 0f);
             sensor.AddObservation(Mathf.Clamp01(perception.TimeSinceLastSeen / Mathf.Max(0.1f, searchDuration)));
 
             for (int index = 0; index < perception.RaySamples.Count; index++)
@@ -234,6 +236,11 @@ namespace TankArena2D
             int fireAction = actions.DiscreteActions[4];
             moveInput = Vector2.ClampMagnitude(moveInput, 1f);
             movement.SetMoveInput(moveInput);
+
+            if (weapon != null && weapon.IsMagazineEmpty)
+            {
+                weapon.StartReload();
+            }
 
             if (aimInput.sqrMagnitude > 0.01f)
             {

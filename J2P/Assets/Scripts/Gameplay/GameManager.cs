@@ -19,6 +19,9 @@ namespace TankArena2D
         private Coroutine playerRespawnRoutine;
         private bool subscriptionsActive;
         private bool sessionSubmitted;
+        private MatchMode matchMode;
+
+        public event System.Action GameOverTriggered;
 
         public int TotalKills { get; private set; }
         public int PlayerKillCount { get; private set; }
@@ -29,6 +32,7 @@ namespace TankArena2D
         public float RespawnCountdown { get; private set; }
         public float EnemyRespawnCountdown => spawnManager != null ? spawnManager.RemainingRespawnTime : 0f;
         public bool IsGameOver { get; private set; }
+        public bool IsMultiplayer => matchMode == MatchMode.OnlinePvP;
         public PlayerController Player => player;
         public SpawnManager Spawner => spawnManager;
 
@@ -54,20 +58,31 @@ namespace TankArena2D
 
         private void Start()
         {
+            Time.timeScale = 1f;
             ProfileService.EnsureInstance().BeginMatch();
+            matchMode = ProfileService.Instance.SelectedMatchMode;
             RemainingLives = maxPlayerLives;
             IsGameOver = false;
 
-            if (spawnManager != null)
+            if (spawnManager != null && !IsMultiplayer)
             {
                 spawnManager.ConfigureRespawn(initialEnemyCount, maxAliveEnemies, enemyRespawnDelay, true);
                 spawnManager.StartAutoRespawn();
+            }
+            else if (spawnManager != null)
+            {
+                spawnManager.StopAutoRespawn();
+            }
+
+            if (IsMultiplayer && GetComponent<MultiplayerClient>() == null)
+            {
+                gameObject.AddComponent<MultiplayerClient>();
             }
         }
 
         private void Update()
         {
-            if (IsGameOver)
+            if (IsGameOver || IsMultiplayer)
             {
                 return;
             }
@@ -180,6 +195,13 @@ namespace TankArena2D
                 return;
             }
 
+            if (IsMultiplayer)
+            {
+                RemainingLives = 0;
+                TriggerGameOver();
+                return;
+            }
+
             RemainingLives = Mathf.Max(0, RemainingLives - 1);
 
             if (RemainingLives <= 0)
@@ -257,7 +279,20 @@ namespace TankArena2D
             }
 
             SubmitSessionStats();
+            GameOverTriggered?.Invoke();
             Time.timeScale = 0f;
+        }
+
+        public void SetOnlineScore(int score, int kills)
+        {
+            Score = Mathf.Max(0, score);
+            PlayerKillCount = Mathf.Max(0, kills);
+        }
+
+        public void ForceGameOver()
+        {
+            RemainingLives = 0;
+            TriggerGameOver();
         }
 
         private void SubmitSessionStats()

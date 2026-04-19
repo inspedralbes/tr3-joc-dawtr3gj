@@ -13,14 +13,13 @@ namespace TankArena2D
 
         private void Awake()
         {
-            if (gameManager == null)
-            {
-                gameManager = FindAnyObjectByType<GameManager>();
-            }
+            ResolveGameManager();
         }
 
         private void OnGUI()
         {
+            ResolveGameManager();
+
             if (gameManager == null || !gameManager.IsGameOver)
             {
                 return;
@@ -94,6 +93,14 @@ namespace TankArena2D
                 alignment = TextAnchor.MiddleCenter,
                 normal = { textColor = new Color(0.9f, 0.95f, 1f) }
             };
+        }
+
+        private void ResolveGameManager()
+        {
+            if (gameManager == null)
+            {
+                gameManager = FindAnyObjectByType<GameManager>();
+            }
         }
     }
 }

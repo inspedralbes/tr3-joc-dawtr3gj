@@ -43,6 +43,17 @@ namespace TankArena2D
                 : Mathf.Clamp(healthAmount, 1f, maxHealth);
         }
 
+        public void SetState(float currentHealth, bool isDead)
+        {
+            IsDead = isDead;
+            CurrentHealth = Mathf.Clamp(currentHealth, 0f, maxHealth);
+
+            if (!IsDead && CurrentHealth <= 0f)
+            {
+                CurrentHealth = Mathf.Min(maxHealth, 1f);
+            }
+        }
+
         public bool ApplyDamage(DamageInfo damage)
         {
             if (IsDead || damage.Amount <= 0f)
