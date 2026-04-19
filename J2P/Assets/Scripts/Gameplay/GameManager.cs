@@ -15,11 +15,15 @@ namespace TankArena2D
         [SerializeField, Min(1)] private int maxPlayerLives = 3;
         [SerializeField, Min(1)] private int baseKillScore = 100;
         [SerializeField, Min(0f)] private float extraScorePerSurvivalSecond = 4f;
+        [SerializeField, Min(2)] private int minOnlineCombatants = 15;
+        [SerializeField, Min(0)] private int maxOnlineBots = 14;
 
         private Coroutine playerRespawnRoutine;
         private bool subscriptionsActive;
         private bool sessionSubmitted;
         private MatchMode matchMode;
+        private bool playerDeathHandled;
+        private int currentOnlineBotTarget;
 
         public event System.Action GameOverTriggered;
 
@@ -63,6 +67,13 @@ namespace TankArena2D
             matchMode = ProfileService.Instance.SelectedMatchMode;
             RemainingLives = maxPlayerLives;
             IsGameOver = false;
+            playerDeathHandled = false;
+            CombatantPresence playerPresence = player != null ? player.GetComponent<CombatantPresence>() : null;
+
+            if (playerPresence != null)
+            {
+                playerPresence.ResetLocalKills();
+            }
 
             if (spawnManager != null && !IsMultiplayer)
             {
@@ -71,7 +82,10 @@ namespace TankArena2D
             }
             else if (spawnManager != null)
             {
-                spawnManager.StopAutoRespawn();
+                int desiredBotCount = CalculateDesiredOnlineBotCount();
+                currentOnlineBotTarget = desiredBotCount;
+                spawnManager.ConfigureRespawn(desiredBotCount, desiredBotCount, enemyRespawnDelay, true);
+                spawnManager.StartAutoRespawn();
             }
 
             if (IsMultiplayer && GetComponent<MultiplayerClient>() == null)
@@ -82,12 +96,26 @@ namespace TankArena2D
 
         private void Update()
         {
-            if (IsGameOver || IsMultiplayer)
+            if (!IsGameOver &&
+                player != null &&
+                player.Health != null &&
+                player.Health.IsDead &&
+                !playerDeathHandled)
+            {
+                HandlePlayerDied(player.Health, default);
+            }
+
+            if (IsGameOver)
             {
                 return;
             }
 
             SurvivalTime += Time.deltaTime;
+
+            if (IsMultiplayer)
+            {
+                UpdateOnlineBotPopulation();
+            }
         }
 
         public void Configure(
@@ -124,6 +152,7 @@ namespace TankArena2D
         {
             UnhookSubscriptions();
             player = controller;
+            playerDeathHandled = false;
             HookSubscriptions();
 
             if (spawnManager != null)
@@ -180,6 +209,12 @@ namespace TankArena2D
             }
 
             TotalKills++;
+            CombatantPresence sourcePresence = damage.Source != null ? damage.Source.GetComponent<CombatantPresence>() : null;
+
+            if (sourcePresence != null)
+            {
+                sourcePresence.AddKill();
+            }
 
             if (player != null && damage.Source == player.gameObject)
             {
@@ -194,6 +229,8 @@ namespace TankArena2D
             {
                 return;
             }
+
+            playerDeathHandled = true;
 
             if (IsMultiplayer)
             {
@@ -250,6 +287,7 @@ namespace TankArena2D
                 return;
             }
 
+            playerDeathHandled = false;
             Vector2 spawnPosition = arenaBounds != null
                 ? arenaBounds.ClampInside(Vector2.zero, 2f)
                 : Vector2.zero;
@@ -304,6 +342,33 @@ namespace TankArena2D
 
             sessionSubmitted = true;
             ProfileService.EnsureInstance().EndMatch(Score, SurvivalTime, PlayerKillCount, true);
+        }
+
+        private void UpdateOnlineBotPopulation()
+        {
+            if (spawnManager == null)
+            {
+                return;
+            }
+
+            int desiredBotCount = CalculateDesiredOnlineBotCount();
+
+            if (desiredBotCount == currentOnlineBotTarget)
+            {
+                return;
+            }
+
+            currentOnlineBotTarget = desiredBotCount;
+            spawnManager.ConfigureRespawn(desiredBotCount, desiredBotCount, enemyRespawnDelay, true);
+            spawnManager.TrimToDesiredCount();
+        }
+
+        private int CalculateDesiredOnlineBotCount()
+        {
+            int remotePlayers = MultiplayerClient.Active != null ? MultiplayerClient.Active.RemotePlayerCount : 0;
+            int totalHumans = 1 + Mathf.Max(0, remotePlayers);
+            int requiredBots = Mathf.Max(0, minOnlineCombatants - totalHumans);
+            return Mathf.Clamp(requiredBots, 0, maxOnlineBots);
         }
     }
 }

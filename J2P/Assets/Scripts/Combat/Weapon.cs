@@ -32,13 +32,15 @@ namespace TankArena2D
         [SerializeField, Min(1f)] private float projectileDamage = 20f;
         [SerializeField, Min(1)] private int magazineSize = 8;
         [SerializeField, Min(0.1f)] private float reloadDuration = 1.5f;
-        [SerializeField] private bool autoReloadOnEmpty;
+        [SerializeField] private bool autoReloadOnEmpty = true;
+        [SerializeField, Min(0f)] private float autoReloadDelay = 0.45f;
         [SerializeField] private Transform projectileContainer;
 
         private FactionMember factionMember;
         private Collider2D[] ownerColliders;
         private float nextShotTime;
         private float reloadEndTime;
+        private float lastShotTime = float.NegativeInfinity;
         private int ammoInMagazine;
 
         public event System.Action<Weapon, ShotData> Fired;
@@ -53,7 +55,8 @@ namespace TankArena2D
         public int MagazineSize => magazineSize;
         public int AmmoInMagazine => ammoInMagazine;
         public bool IsMagazineEmpty => ammoInMagazine <= 0;
-        public bool IsReloading => Time.time < reloadEndTime;
+        public bool IsReloading => reloadEndTime > 0f && Time.time < reloadEndTime;
+        public bool AutoReloadOnEmpty => autoReloadOnEmpty;
         public float ReloadDuration => reloadDuration;
         public float CooldownRemainingNormalized => fireCooldown <= 0.001f
             ? 0f
@@ -127,6 +130,7 @@ namespace TankArena2D
             }
 
             nextShotTime = Time.time + fireCooldown;
+            lastShotTime = Time.time;
             ammoInMagazine = Mathf.Max(0, ammoInMagazine - 1);
             Vector2 safeDirection = direction.sqrMagnitude > 0.0001f ? direction.normalized : Vector2.right;
 
@@ -157,6 +161,7 @@ namespace TankArena2D
                 return false;
             }
 
+            nextShotTime = Mathf.Max(nextShotTime, Time.time + 0.05f);
             reloadEndTime = Time.time + reloadDuration;
             return true;
         }
@@ -169,9 +174,18 @@ namespace TankArena2D
 
         private void Update()
         {
-            if (IsReloading && Time.time >= reloadEndTime)
+            if (reloadEndTime > 0f && Time.time >= reloadEndTime)
             {
                 RefillMagazine();
+                return;
+            }
+
+            if (!IsReloading &&
+                autoReloadOnEmpty &&
+                ammoInMagazine < magazineSize &&
+                Time.time >= lastShotTime + autoReloadDelay)
+            {
+                StartReload();
             }
         }
     }

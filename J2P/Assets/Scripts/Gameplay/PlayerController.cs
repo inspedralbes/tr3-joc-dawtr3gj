@@ -27,6 +27,7 @@ namespace TankArena2D
             health = GetComponent<Health>();
             cachedColliders = GetComponentsInChildren<Collider2D>(true);
             cachedRenderers = GetComponentsInChildren<Renderer>(true);
+            ApplyProfileName();
         }
 
         private void OnEnable()
@@ -55,6 +56,7 @@ namespace TankArena2D
         {
             transform.position = position;
             health.Revive();
+            weapon.RefillMagazine();
             SetPresentationActive(true);
             movement.StopImmediate();
             enabled = true;
@@ -77,16 +79,16 @@ namespace TankArena2D
 
             AimAtMouse();
 
-            if (Input.GetKeyDown(KeyCode.R))
-            {
-                weapon.StartReload();
-            }
-
             bool firePressed = holdToFire ? Input.GetMouseButton(0) : Input.GetMouseButtonDown(0);
 
             if (firePressed)
             {
-                weapon.TryFire(turretAim.Forward);
+                if (!weapon.TryFire(turretAim.Forward) &&
+                    weapon.IsMagazineEmpty &&
+                    weapon.AutoReloadOnEmpty)
+                {
+                    weapon.StartReload();
+                }
             }
         }
 
@@ -108,6 +110,29 @@ namespace TankArena2D
             movement.StopImmediate();
             SetPresentationActive(false);
             enabled = false;
+        }
+
+        private void ApplyProfileName()
+        {
+            if (!ProfileService.HasInstance || !ProfileService.Instance.IsLoggedIn)
+            {
+                return;
+            }
+
+            string userName = ProfileService.Instance.CurrentUserName;
+            NameplateTarget nameplate = GetComponent<NameplateTarget>();
+
+            if (nameplate != null)
+            {
+                nameplate.SetDisplayName(userName);
+            }
+
+            CombatantPresence presence = GetComponent<CombatantPresence>();
+
+            if (presence != null)
+            {
+                presence.SetDisplayName(userName);
+            }
         }
 
         private void SetPresentationActive(bool isActive)

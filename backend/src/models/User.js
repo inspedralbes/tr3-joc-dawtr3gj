@@ -18,6 +18,44 @@ const userSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    stats: {
+      matchesPlayed: {
+        type: Number,
+        default: 0,
+      },
+      totalKills: {
+        type: Number,
+        default: 0,
+      },
+      bestKillsInMatch: {
+        type: Number,
+        default: 0,
+      },
+      lastKills: {
+        type: Number,
+        default: 0,
+      },
+      bestScore: {
+        type: Number,
+        default: 0,
+      },
+      lastScore: {
+        type: Number,
+        default: 0,
+      },
+      totalPlayTime: {
+        type: Number,
+        default: 0,
+      },
+      bestSurvivalTime: {
+        type: Number,
+        default: 0,
+      },
+      lastSurvivalTime: {
+        type: Number,
+        default: 0,
+      },
+    },
   },
   {
     timestamps: true,

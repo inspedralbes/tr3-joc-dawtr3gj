@@ -145,10 +145,24 @@ namespace TankArena2D
                 if (ownerActor != null && ownerActor.IsLocalPlayer && !targetActor.IsLocalPlayer)
                 {
                     MultiplayerClient.Active.ReportDamage(targetActor.NetworkId, damage, hitPoint);
+                    Destroy(gameObject);
+                    return;
                 }
 
-                Destroy(gameObject);
-                return;
+                if (ownerActor == null && targetActor.IsLocalPlayer && health != null && !health.IsDead)
+                {
+                    // Local filler bots in online mode should damage the local player immediately.
+                    health.ApplyDamage(new DamageInfo(damage, owner, hitPoint, rb.linearVelocity.normalized));
+                    Destroy(gameObject);
+                    return;
+                }
+
+                if (ownerActor != null && !ownerActor.IsLocalPlayer && targetActor.IsLocalPlayer)
+                {
+                    // Remote avatars are visual-only on this client. The server sends the authoritative damage event.
+                    Destroy(gameObject);
+                    return;
+                }
             }
 
             if (health != null && !health.IsDead)

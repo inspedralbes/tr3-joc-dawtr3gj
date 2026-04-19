@@ -33,6 +33,10 @@ namespace TankArena2D
             health.Configure(100f, false);
 
             NetworkActor actor = root.AddComponent<NetworkActor>();
+            NameplateTarget nameplate = root.AddComponent<NameplateTarget>();
+            nameplate.SetDisplayName(displayName);
+            CombatantPresence presence = root.AddComponent<CombatantPresence>();
+            presence.Configure(displayName, false, true);
             RemotePlayerAvatar avatar = root.AddComponent<RemotePlayerAvatar>();
             avatar.BuildVisuals();
             avatar.Cache();

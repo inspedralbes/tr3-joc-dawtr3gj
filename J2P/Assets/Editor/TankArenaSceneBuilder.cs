@@ -356,6 +356,8 @@ namespace TankArena2D.Editor
 
             Health health = root.AddComponent<Health>();
             health.Configure(120f, false);
+            root.AddComponent<NameplateTarget>().SetDisplayName("Jugador");
+            root.AddComponent<CombatantPresence>().Configure("Jugador", true, true);
 
             TankMovement2D movement = root.AddComponent<TankMovement2D>();
             movement.Configure(8.3f, 44f, 48f, arenaBounds, 0.75f);
@@ -370,6 +372,7 @@ namespace TankArena2D.Editor
 
             Weapon weapon = root.AddComponent<Weapon>();
             weapon.Configure(projectileTemplate, muzzle, 0.18f, 24f, 2f, 24f, projectileContainer);
+            root.AddComponent<ReloadFeedback>();
 
             return root.AddComponent<PlayerController>();
         }
@@ -445,6 +448,8 @@ namespace TankArena2D.Editor
 
             Health health = root.AddComponent<Health>();
             health.Configure(75f, false);
+            root.AddComponent<NameplateTarget>().SetDisplayName("BOT");
+            root.AddComponent<CombatantPresence>().Configure("BOT", true, true);
 
             TankMovement2D movement = root.AddComponent<TankMovement2D>();
             movement.Configure(6.6f, 34f, 38f, arenaBounds, 0.72f);

@@ -142,6 +142,8 @@ namespace TankArena2D
         private bool fireSubscribed;
         private string disconnectReason = string.Empty;
 
+        public int RemotePlayerCount => remotePlayers.Count;
+
         private void Awake()
         {
             ResolveDependencies();
@@ -404,6 +406,7 @@ namespace TankArena2D
             if (snapshot.id == selfId)
             {
                 gameManager.SetOnlineScore(snapshot.score, snapshot.kills);
+                UpdateLocalPresence(snapshot.username, snapshot.kills);
                 return;
             }
 
@@ -507,6 +510,13 @@ namespace TankArena2D
             }
 
             avatar.ApplyState(snapshot.x, snapshot.y, snapshot.bodyAngle, snapshot.turretAngle, snapshot.hp, snapshot.maxHp, snapshot.alive);
+            CombatantPresence presence = avatar.GetComponent<CombatantPresence>();
+
+            if (presence != null)
+            {
+                presence.SetDisplayName(snapshot.username);
+                presence.SetBaseKills(snapshot.kills);
+            }
         }
 
         private void EnsureLocalActor(string networkId)
@@ -524,6 +534,20 @@ namespace TankArena2D
             }
 
             localActor.Configure(networkId, ProfileService.Instance.CurrentUserId, ProfileService.Instance.CurrentUserName, true);
+            NameplateTarget nameplate = localPlayer.GetComponent<NameplateTarget>();
+
+            if (nameplate != null)
+            {
+                nameplate.SetDisplayName(ProfileService.Instance.CurrentUserName);
+            }
+
+            CombatantPresence presence = localPlayer.GetComponent<CombatantPresence>();
+
+            if (presence != null)
+            {
+                presence.Configure(ProfileService.Instance.CurrentUserName, true, true);
+            }
+
             actorIndex[networkId] = localActor;
         }
 
@@ -608,6 +632,26 @@ namespace TankArena2D
         private static string ToInvariant(float value)
         {
             return value.ToString("0.###", CultureInfo.InvariantCulture);
+        }
+
+        private void UpdateLocalPresence(string userName, int kills)
+        {
+            if (localPlayer == null)
+            {
+                return;
+            }
+
+            CombatantPresence presence = localPlayer.GetComponent<CombatantPresence>();
+
+            if (presence != null)
+            {
+                if (!string.IsNullOrWhiteSpace(userName))
+                {
+                    presence.SetDisplayName(userName);
+                }
+
+                presence.SetBaseKills(kills);
+            }
         }
     }
 }

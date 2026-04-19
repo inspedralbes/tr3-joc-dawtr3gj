@@ -19,6 +19,7 @@ namespace TankArena2D
         [SerializeField, Min(0.1f)] private float stuckCheckInterval = 0.5f;
         [SerializeField, Min(0.01f)] private float stuckDistanceThreshold = 0.12f;
         [SerializeField, Min(0.1f)] private float unstuckDuration = 0.85f;
+        [SerializeField, Min(0.1f)] private float targetRefreshInterval = 0.45f;
 
         private TankMovement2D movement;
         private TurretAim turretAim;
@@ -31,6 +32,7 @@ namespace TankArena2D
         private float lastStuckCheckTime;
         private float forcedMoveUntil;
         private float nextPatrolChangeTime;
+        private float nextTargetRefreshTime;
         private float strafeSign;
 
         private void Awake()
@@ -120,6 +122,7 @@ namespace TankArena2D
                 return;
             }
 
+            RefreshTargetSelection();
             perception.Scan(target);
 
             Vector2 moveInput = Vector2.zero;
@@ -247,6 +250,62 @@ namespace TankArena2D
         {
             movement.StopImmediate();
             enabled = false;
+        }
+
+        private void RefreshTargetSelection()
+        {
+            if (!ProfileService.HasInstance || ProfileService.Instance.SelectedMatchMode != MatchMode.OnlinePvP)
+            {
+                return;
+            }
+
+            bool currentTargetValid = target != null &&
+                                      targetHealth != null &&
+                                      !targetHealth.IsDead &&
+                                      target.gameObject != gameObject;
+
+            if (currentTargetValid && Time.time < nextTargetRefreshTime)
+            {
+                return;
+            }
+
+            nextTargetRefreshTime = Time.time + targetRefreshInterval;
+            CombatantPresence[] candidates = FindObjectsByType<CombatantPresence>(FindObjectsSortMode.None);
+            Transform bestTarget = null;
+            Health bestHealth = null;
+            float bestDistanceSquared = float.PositiveInfinity;
+
+            for (int index = 0; index < candidates.Length; index++)
+            {
+                CombatantPresence candidate = candidates[index];
+
+                if (candidate == null || !candidate.AllowAiTargeting || candidate.gameObject == gameObject)
+                {
+                    continue;
+                }
+
+                Health candidateHealth = candidate.GetComponent<Health>();
+
+                if (candidateHealth == null || candidateHealth.IsDead)
+                {
+                    continue;
+                }
+
+                float distanceSquared = ((Vector2)candidate.transform.position - (Vector2)transform.position).sqrMagnitude;
+
+                if (distanceSquared < bestDistanceSquared)
+                {
+                    bestDistanceSquared = distanceSquared;
+                    bestTarget = candidate.transform;
+                    bestHealth = candidateHealth;
+                }
+            }
+
+            if (bestTarget != null)
+            {
+                target = bestTarget;
+                targetHealth = bestHealth;
+            }
         }
     }
 }

@@ -40,6 +40,7 @@ yarn-error.log*
 # doc/*.pdf
 J2P/Documentation/
 J2P/**/*.md
+SERVER_DEPLOY_NOTES.md
 
 # --- Archivos del Sistema ---
 .DS_Store

@@ -56,7 +56,6 @@ namespace TankArena2D
         private const string UsersKey = "tankarena.users";
         private const string AuthTokenKey = "tankarena.auth.token";
         private const string AuthUserIdKey = "tankarena.auth.user_id";
-        private const string ApiBaseUrlKey = "tankarena.backend.api_url";
         private const string MatchModeKey = "tankarena.match_mode";
         private const int MaxStoredMatches = 8;
 
@@ -64,6 +63,7 @@ namespace TankArena2D
 
         private ProfileStats currentStats;
         private readonly List<MatchRecord> recentMatches = new();
+        private readonly List<LeaderboardEntry> remoteLeaderboard = new();
         private float currentMatchStartTime;
         private bool matchRunning;
 
@@ -78,6 +78,7 @@ namespace TankArena2D
         public MatchMode SelectedMatchMode { get; private set; } = MatchMode.LocalSurvival;
         public ProfileStats CurrentStats => currentStats;
         public IReadOnlyList<MatchRecord> RecentMatches => recentMatches;
+        public IReadOnlyList<LeaderboardEntry> RemoteLeaderboard => remoteLeaderboard;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
         private static void Bootstrap()
@@ -139,6 +140,7 @@ namespace TankArena2D
             PlayerPrefs.SetString(AuthUserIdKey, CurrentUserId);
             LoadStats();
             LoadMatchHistory();
+            RefreshRemoteStats();
             PlayerPrefs.Save();
         }
 
@@ -164,7 +166,6 @@ namespace TankArena2D
         public void SetApiBaseUrl(string url)
         {
             ApiBaseUrl = BackendSettings.NormalizeApiBaseUrl(url);
-            PlayerPrefs.SetString(ApiBaseUrlKey, ApiBaseUrl);
             PlayerPrefs.Save();
         }
 
@@ -253,10 +254,20 @@ namespace TankArena2D
 
             SaveStats();
             SaveMatchHistory();
+
+            if (HasAuthenticatedSession)
+            {
+                StartCoroutine(StatsApiClient.SubmitMatch(ApiBaseUrl, AuthToken, currentStats.LastScore, currentStats.LastKills, resolvedSurvivalTime, HandleRemoteStatsSubmitted));
+            }
         }
 
         public IReadOnlyList<LeaderboardEntry> GetLeaderboard()
         {
+            if (remoteLeaderboard.Count > 0)
+            {
+                return remoteLeaderboard;
+            }
+
             List<LeaderboardEntry> entries = new();
             List<string> users = GetAllUsers();
 
@@ -305,7 +316,7 @@ namespace TankArena2D
 
         private void Initialize()
         {
-            ApiBaseUrl = BackendSettings.NormalizeApiBaseUrl(PlayerPrefs.GetString(ApiBaseUrlKey, BackendSettings.DefaultApiBaseUrl));
+            ApiBaseUrl = BackendSettings.DefaultApiBaseUrl;
             SelectedMatchMode = (MatchMode)PlayerPrefs.GetInt(MatchModeKey, (int)MatchMode.LocalSurvival);
             CurrentUserName = NormalizeUserName(PlayerPrefs.GetString(CurrentUserKey, string.Empty));
             CurrentUserId = PlayerPrefs.GetString(AuthUserIdKey, string.Empty);
@@ -315,7 +326,19 @@ namespace TankArena2D
             {
                 LoadStats();
                 LoadMatchHistory();
+                RefreshRemoteStats();
             }
+        }
+
+        public void RefreshRemoteStats()
+        {
+            if (!HasAuthenticatedSession)
+            {
+                return;
+            }
+
+            StartCoroutine(StatsApiClient.GetMyStats(ApiBaseUrl, AuthToken, HandleRemoteStatsLoaded));
+            StartCoroutine(StatsApiClient.GetLeaderboard(ApiBaseUrl, HandleRemoteLeaderboardLoaded));
         }
 
         private void LoadStats()
@@ -426,6 +449,55 @@ namespace TankArena2D
         private static string GetHistoryKey(string userName)
         {
             return $"tankarena.profile.history.{userName.ToLowerInvariant()}";
+        }
+
+        private void HandleRemoteStatsLoaded(StatsApiClient.RemoteStats? stats, string _)
+        {
+            if (stats == null)
+            {
+                return;
+            }
+
+            StatsApiClient.RemoteStats remote = stats.Value;
+            currentStats.MatchesPlayed = remote.matchesPlayed;
+            currentStats.TotalKills = remote.totalKills;
+            currentStats.BestKillsInMatch = remote.bestKillsInMatch;
+            currentStats.LastKills = remote.lastKills;
+            currentStats.BestScore = remote.bestScore;
+            currentStats.LastScore = remote.lastScore;
+            currentStats.TotalPlayTime = remote.totalPlayTime;
+            currentStats.BestSurvivalTime = remote.bestSurvivalTime;
+            currentStats.LastSurvivalTime = remote.lastSurvivalTime;
+            SaveStats();
+        }
+
+        private void HandleRemoteStatsSubmitted(StatsApiClient.RemoteStats? stats, string _)
+        {
+            HandleRemoteStatsLoaded(stats, string.Empty);
+            StartCoroutine(StatsApiClient.GetLeaderboard(ApiBaseUrl, HandleRemoteLeaderboardLoaded));
+        }
+
+        private void HandleRemoteLeaderboardLoaded(IReadOnlyList<StatsApiClient.LeaderboardEntry> entries, string _)
+        {
+            remoteLeaderboard.Clear();
+
+            if (entries == null)
+            {
+                return;
+            }
+
+            for (int index = 0; index < entries.Count; index++)
+            {
+                StatsApiClient.LeaderboardEntry entry = entries[index];
+                remoteLeaderboard.Add(new LeaderboardEntry
+                {
+                    UserName = entry.username,
+                    BestScore = entry.stats.bestScore,
+                    BestKillsInMatch = entry.stats.bestKillsInMatch,
+                    MatchesPlayed = entry.stats.matchesPlayed,
+                    BestSurvivalTime = entry.stats.bestSurvivalTime
+                });
+            }
         }
     }
 }

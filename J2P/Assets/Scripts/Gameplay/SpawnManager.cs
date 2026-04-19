@@ -7,6 +7,11 @@ namespace TankArena2D
 {
     public sealed class SpawnManager : MonoBehaviour
     {
+        private static readonly string[] BotNames =
+        {
+            "Ares", "Nyx", "Hydra", "Vanta", "Onyx", "Mako", "Hex", "Pulse", "Atlas", "Nova", "Shade", "Titan"
+        };
+
         [SerializeField] private ArenaBounds arenaBounds;
         [SerializeField] private GameObject enemyPrefab;
         [SerializeField] private Transform playerTarget;
@@ -23,6 +28,7 @@ namespace TankArena2D
 
         private readonly HashSet<GameObject> activeEnemies = new HashSet<GameObject>();
         private Coroutine populationRoutine;
+        private int botNameCursor;
 
         public event Action<GameObject> EnemySpawned;
         public event Action<GameObject, DamageInfo> EnemyKilled;
@@ -58,6 +64,48 @@ namespace TankArena2D
             desiredAliveEnemies = Mathf.Max(initialEnemyCount, desiredCount);
             respawnDelay = Mathf.Max(0.1f, delay);
             autoRespawn = enableAutoRespawn;
+        }
+
+        public void SetDesiredAliveEnemies(int desiredCount)
+        {
+            desiredAliveEnemies = Mathf.Max(0, desiredCount);
+            initialEnemyCount = Mathf.Min(initialEnemyCount, desiredAliveEnemies);
+        }
+
+        public void SetPopulationTargets(int initialCount, int desiredCount)
+        {
+            initialEnemyCount = Mathf.Max(0, initialCount);
+            desiredAliveEnemies = Mathf.Max(initialEnemyCount, desiredCount);
+        }
+
+        public void TrimToDesiredCount()
+        {
+            if (activeEnemies.Count <= desiredAliveEnemies)
+            {
+                return;
+            }
+
+            List<GameObject> overflow = new List<GameObject>(activeEnemies);
+
+            for (int index = desiredAliveEnemies; index < overflow.Count; index++)
+            {
+                GameObject enemy = overflow[index];
+
+                if (enemy == null)
+                {
+                    continue;
+                }
+
+                Health health = enemy.GetComponent<Health>();
+
+                if (health != null)
+                {
+                    health.Died -= HandleEnemyDeath;
+                }
+
+                activeEnemies.Remove(enemy);
+                Destroy(enemy);
+            }
         }
 
         public void SetPlayerTarget(Transform target)
@@ -116,6 +164,7 @@ namespace TankArena2D
             enemyAgent.ResetAgent(spawnPosition);
 
             Health health = enemyObject.GetComponent<Health>();
+            ApplyBotIdentity(enemyObject);
 
             if (health != null)
             {
@@ -243,6 +292,28 @@ namespace TankArena2D
             }
 
             return null;
+        }
+
+        private void ApplyBotIdentity(GameObject enemyObject)
+        {
+            string botName = $"BOT {BotNames[botNameCursor % BotNames.Length]}";
+            botNameCursor++;
+            enemyObject.name = botName;
+
+            NameplateTarget nameplate = enemyObject.GetComponent<NameplateTarget>();
+
+            if (nameplate != null)
+            {
+                nameplate.SetDisplayName(botName);
+            }
+
+            CombatantPresence presence = enemyObject.GetComponent<CombatantPresence>();
+
+            if (presence != null)
+            {
+                presence.Configure(botName, true, true);
+                presence.ResetLocalKills();
+            }
         }
     }
 }

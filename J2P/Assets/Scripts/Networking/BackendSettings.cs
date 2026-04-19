@@ -4,7 +4,7 @@ namespace TankArena2D
 {
     public static class BackendSettings
     {
-        public const string DefaultApiBaseUrl = "http://127.0.0.1:3100";
+        public const string DefaultApiBaseUrl = "http://89.167.38.218:3100";
 
         public static string NormalizeApiBaseUrl(string url)
         {
