@@ -72,6 +72,18 @@ namespace TankArena2D
             return true;
         }
 
+        public float Heal(float amount)
+        {
+            if (IsDead || amount <= 0f)
+            {
+                return 0f;
+            }
+
+            float previousHealth = CurrentHealth;
+            CurrentHealth = Mathf.Min(maxHealth, CurrentHealth + amount);
+            return CurrentHealth - previousHealth;
+        }
+
         private void HandleDeath(DamageInfo damage)
         {
             if (IsDead)

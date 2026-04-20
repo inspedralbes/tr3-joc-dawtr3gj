@@ -131,6 +131,7 @@ GameObject:
   - component: {fileID: 1057712}
   - component: {fileID: 1057711}
   - component: {fileID: 1057710}
+  - component: {fileID: 1057714}
   - component: {fileID: 1057702}
   - component: {fileID: 1057709}
   - component: {fileID: 1057708}
@@ -175,6 +176,18 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::TankArena2D.PlayerController
   playerCamera: {fileID: 1955888295}
   holdToFire: 1
+--- !u!114 &1057714
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1057701}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7d9e82bd6a8142ff8cbf0eb3413a5e10, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::TankArena2D.PlayerPowerupController
 --- !u!114 &1057704
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -6621,6 +6634,7 @@ GameObject:
   m_Component:
   - component: {fileID: 1972734315}
   - component: {fileID: 1972734314}
+  - component: {fileID: 1972734316}
   m_Layer: 0
   m_Name: GameManager
   m_TagString: Untagged
@@ -6643,6 +6657,7 @@ MonoBehaviour:
   arenaBounds: {fileID: 1993115346}
   spawnManager: {fileID: 97206921}
   player: {fileID: 1057703}
+  enableMapPowerups: 1
   initialEnemyCount: 6
   maxAliveEnemies: 6
   enemyRespawnDelay: 3
@@ -6652,6 +6667,26 @@ MonoBehaviour:
   extraScorePerSurvivalSecond: 4
   minOnlineCombatants: 15
   maxOnlineBots: 14
+--- !u!114 &1972734316
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1972734313}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2e2d35a8dc1742d7b07df340250083c8, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::TankArena2D.PowerupSpawnManager
+  arenaBounds: {fileID: 1993115346}
+  player: {fileID: 1057703}
+  powerupContainer: {fileID: 0}
+  spawnAttempts: 40
+  spawnCheckRadius: 0.9
+  spawnPadding: 2.5
+  spawnInterval: 12
+  maxActivePowerups: 3
 --- !u!4 &1972734315
 Transform:
   m_ObjectHideFlags: 0

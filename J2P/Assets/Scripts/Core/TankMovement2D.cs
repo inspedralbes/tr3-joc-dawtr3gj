@@ -13,10 +13,12 @@ namespace TankArena2D
 
         private Rigidbody2D rb;
         private Vector2 moveInput;
+        private float externalSpeedMultiplier = 1f;
 
         public Vector2 Velocity => rb != null ? rb.linearVelocity : Vector2.zero;
         public Vector2 DesiredMove => moveInput;
         public float MoveSpeed => moveSpeed;
+        public float EffectiveMoveSpeed => moveSpeed * externalSpeedMultiplier;
 
         private void Awake()
         {
@@ -51,6 +53,11 @@ namespace TankArena2D
             }
         }
 
+        public void SetExternalSpeedMultiplier(float multiplier)
+        {
+            externalSpeedMultiplier = Mathf.Max(0.01f, multiplier);
+        }
+
         private void FixedUpdate()
         {
             if (rb == null)
@@ -59,7 +66,7 @@ namespace TankArena2D
             }
 
             float rate = moveInput.sqrMagnitude > 0.001f ? acceleration : deceleration;
-            Vector2 targetVelocity = moveInput * moveSpeed;
+            Vector2 targetVelocity = moveInput * EffectiveMoveSpeed;
             rb.linearVelocity = Vector2.MoveTowards(rb.linearVelocity, targetVelocity, rate * Time.fixedDeltaTime);
 
             if (arenaBounds != null)

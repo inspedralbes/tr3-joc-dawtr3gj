@@ -30,6 +30,8 @@ namespace TankArena2D
         {
             public string selfId;
             public PlayerSnapshot[] players;
+            public PowerupSnapshot[] powerups;
+            public string powerupHostId;
             public long serverTime;
         }
 
@@ -89,6 +91,56 @@ namespace TankArena2D
         }
 
         [Serializable]
+        private sealed class PowerupSpawnEnvelope
+        {
+            public string type;
+            public PowerupSpawnPayload payload;
+        }
+
+        [Serializable]
+        private sealed class PowerupSpawnPayload
+        {
+            public PowerupSnapshot powerup;
+        }
+
+        [Serializable]
+        private sealed class PowerupCollectedEnvelope
+        {
+            public string type;
+            public PowerupCollectedPayload payload;
+        }
+
+        [Serializable]
+        private sealed class PowerupCollectedPayload
+        {
+            public string powerupId;
+            public string playerId;
+            public string powerupType;
+        }
+
+        [Serializable]
+        private sealed class PowerupHostEnvelope
+        {
+            public string type;
+            public PowerupHostPayload payload;
+        }
+
+        [Serializable]
+        private sealed class PowerupHostPayload
+        {
+            public string playerId;
+        }
+        
+        [Serializable]
+        public sealed class PowerupSnapshot
+        {
+            public string id;
+            public string powerupType;
+            public float x;
+            public float y;
+        }
+
+        [Serializable]
         private sealed class DamagePayload
         {
             public string attackerId;
@@ -135,6 +187,7 @@ namespace TankArena2D
         private CancellationTokenSource cancellationSource;
         private Weapon localWeapon;
         private NetworkActor localActor;
+        private PowerupSpawnManager powerupSpawnManager;
         private string selfId;
         private float nextStateSendAt;
         private bool isConnected;
@@ -298,6 +351,8 @@ namespace TankArena2D
             {
                 localWeapon = localPlayer.GetComponent<Weapon>();
             }
+
+            powerupSpawnManager ??= GetComponent<PowerupSpawnManager>() ?? FindAnyObjectByType<PowerupSpawnManager>();
         }
 
         private async Task ReceiveLoopAsync(ClientWebSocket webSocket, CancellationToken cancellationToken)
@@ -358,6 +413,15 @@ namespace TankArena2D
                 case "damage":
                     HandleDamage(JsonUtility.FromJson<DamageEnvelope>(rawMessage));
                     break;
+                case "powerupSpawned":
+                    HandlePowerupSpawn(JsonUtility.FromJson<PowerupSpawnEnvelope>(rawMessage));
+                    break;
+                case "powerupCollected":
+                    HandlePowerupCollected(JsonUtility.FromJson<PowerupCollectedEnvelope>(rawMessage));
+                    break;
+                case "powerupHostChanged":
+                    HandlePowerupHostChanged(JsonUtility.FromJson<PowerupHostEnvelope>(rawMessage));
+                    break;
             }
         }
 
@@ -370,11 +434,13 @@ namespace TankArena2D
 
             selfId = message.payload.selfId ?? string.Empty;
             EnsureLocalActor(selfId);
+            powerupSpawnManager?.SetSpawnAuthority(message.payload.powerupHostId == selfId);
 
             Vector2 spawnPoint = arenaBounds.GetRandomPoint(6f);
             localPlayer.RespawnAt(spawnPoint);
             SendRespawn(spawnPoint);
             SendPlayerState();
+            powerupSpawnManager?.SyncPowerups(message.payload.powerups);
 
             if (message.payload.players == null)
             {
@@ -498,6 +564,46 @@ namespace TankArena2D
             }
         }
 
+        private void HandlePowerupSpawn(PowerupSpawnEnvelope message)
+        {
+            PowerupSnapshot snapshot = message?.payload?.powerup;
+
+            if (snapshot == null ||
+                string.IsNullOrWhiteSpace(snapshot.id) ||
+                !TryParsePowerupType(snapshot.powerupType, out PowerupType type))
+            {
+                return;
+            }
+
+            powerupSpawnManager?.SyncSpawnPowerup(snapshot.id, type, new Vector2(snapshot.x, snapshot.y));
+        }
+
+        private void HandlePowerupCollected(PowerupCollectedEnvelope message)
+        {
+            PowerupCollectedPayload payload = message?.payload;
+
+            if (payload == null ||
+                string.IsNullOrWhiteSpace(payload.powerupId) ||
+                !TryParsePowerupType(payload.powerupType, out PowerupType type))
+            {
+                return;
+            }
+
+            bool collectedByLocalPlayer = payload.playerId == selfId;
+            powerupSpawnManager?.SyncCollectedPowerup(payload.powerupId, collectedByLocalPlayer, type);
+
+            if (collectedByLocalPlayer)
+            {
+                SendPlayerState();
+            }
+        }
+
+        private void HandlePowerupHostChanged(PowerupHostEnvelope message)
+        {
+            string hostId = message?.payload?.playerId ?? string.Empty;
+            powerupSpawnManager?.SetSpawnAuthority(hostId == selfId);
+        }
+
         private void UpsertRemotePlayer(PlayerSnapshot snapshot)
         {
             if (!remotePlayers.TryGetValue(snapshot.id, out RemotePlayerAvatar avatar))
@@ -604,6 +710,34 @@ namespace TankArena2D
                 "}}");
         }
 
+        public void ReportPowerupSpawn(PowerupType type, Vector2 position)
+        {
+            if (!isConnected)
+            {
+                return;
+            }
+
+            SendJson(
+                "{\"type\":\"powerupSpawn\",\"payload\":{" +
+                $"\"powerupType\":\"{EscapeJson(type.ToString())}\"," +
+                $"\"x\":{ToInvariant(position.x)}," +
+                $"\"y\":{ToInvariant(position.y)}" +
+                "}}");
+        }
+
+        public void ReportPowerupCollected(string powerupId)
+        {
+            if (!isConnected || string.IsNullOrWhiteSpace(powerupId))
+            {
+                return;
+            }
+
+            SendJson(
+                "{\"type\":\"powerupCollect\",\"payload\":{" +
+                $"\"powerupId\":\"{EscapeJson(powerupId)}\"" +
+                "}}");
+        }
+
         private async void SendJson(string json)
         {
             if (!isConnected || socket == null || socket.State != WebSocketState.Open)
@@ -632,6 +766,18 @@ namespace TankArena2D
         private static string ToInvariant(float value)
         {
             return value.ToString("0.###", CultureInfo.InvariantCulture);
+        }
+
+        private static bool TryParsePowerupType(string rawType, out PowerupType type)
+        {
+            if (!string.IsNullOrWhiteSpace(rawType) &&
+                Enum.TryParse(rawType, true, out type))
+            {
+                return true;
+            }
+
+            type = PowerupType.Heal;
+            return false;
         }
 
         private void UpdateLocalPresence(string userName, int kills)

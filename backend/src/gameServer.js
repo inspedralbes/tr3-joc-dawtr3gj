@@ -7,6 +7,8 @@ const { defaultPlayerHp } = require("./config");
 function createGameServer(server) {
   const wss = new WebSocketServer({ noServer: true });
   const players = new Map();
+  const powerups = new Map();
+  let powerupHostId = null;
 
   server.on("upgrade", (request, socket, head) => {
     const parsed = url.parse(request.url, true);
@@ -36,6 +38,15 @@ function createGameServer(server) {
 
   function serializePlayers() {
     return Array.from(players.values()).map(toPublicPlayer);
+  }
+
+  function serializePowerups() {
+    return Array.from(powerups.values()).map((powerup) => ({
+      id: powerup.id,
+      powerupType: powerup.powerupType,
+      x: powerup.x,
+      y: powerup.y,
+    }));
   }
 
   function toPublicPlayer(player) {
@@ -94,10 +105,15 @@ function createGameServer(server) {
     };
 
     players.set(playerId, player);
+    if (!powerupHostId) {
+      powerupHostId = playerId;
+    }
 
     send(ws, "welcome", {
       selfId: playerId,
       players: serializePlayers(),
+      powerups: serializePowerups(),
+      powerupHostId,
       serverTime: Date.now(),
     });
 
@@ -118,6 +134,17 @@ function createGameServer(server) {
     ws.on("close", () => {
       players.delete(playerId);
       broadcast("playerLeft", { playerId });
+
+      if (players.size === 0) {
+        powerups.clear();
+        powerupHostId = null;
+        return;
+      }
+
+      if (powerupHostId === playerId) {
+        powerupHostId = players.size > 0 ? players.keys().next().value : null;
+        broadcast("powerupHostChanged", { playerId: powerupHostId || "" });
+      }
     });
   });
 
@@ -142,6 +169,12 @@ function createGameServer(server) {
       case "respawn":
         applyRespawn(player, message.payload);
         broadcast("respawn", { player: toPublicPlayer(player) }, playerId);
+        break;
+      case "powerupSpawn":
+        applyPowerupSpawn(player, message.payload);
+        break;
+      case "powerupCollect":
+        applyPowerupCollect(player, message.payload);
         break;
       default:
         break;
@@ -217,11 +250,63 @@ function createGameServer(server) {
     player.lastUpdateAt = Date.now();
   }
 
+  function applyPowerupSpawn(player, payload) {
+    if (player.id !== powerupHostId || powerups.size >= 3 || !payload) {
+      return;
+    }
+
+    const powerupType = sanitizePowerupType(payload.powerupType);
+
+    if (!powerupType) {
+      return;
+    }
+
+    const powerup = {
+      id: payload.id || crypto.randomUUID(),
+      powerupType,
+      x: finiteOr(0, payload.x),
+      y: finiteOr(0, payload.y),
+    };
+
+    powerups.set(powerup.id, powerup);
+    broadcast("powerupSpawned", { powerup });
+  }
+
+  function applyPowerupCollect(player, payload) {
+    if (!payload || typeof payload.powerupId !== "string") {
+      return;
+    }
+
+    const powerup = powerups.get(payload.powerupId);
+
+    if (!powerup) {
+      return;
+    }
+
+    powerups.delete(payload.powerupId);
+    broadcast("powerupCollected", {
+      powerupId: powerup.id,
+      playerId: player.id,
+      powerupType: powerup.powerupType,
+    });
+  }
+
   return { wss };
 }
 
 function finiteOr(fallback, value) {
   return Number.isFinite(value) ? value : fallback;
+}
+
+function sanitizePowerupType(value) {
+  switch (value) {
+    case "Heal":
+    case "SpeedBoost":
+    case "RapidFire":
+      return value;
+    default:
+      return null;
+  }
 }
 
 module.exports = { createGameServer };

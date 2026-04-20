@@ -42,6 +42,7 @@ namespace TankArena2D
         private float reloadEndTime;
         private float lastShotTime = float.NegativeInfinity;
         private int ammoInMagazine;
+        private float externalCooldownMultiplier = 1f;
 
         public event System.Action<Weapon, ShotData> Fired;
 
@@ -49,6 +50,7 @@ namespace TankArena2D
         public Projectile ProjectilePrefab => projectilePrefab;
         public bool CanFire => !IsReloading && Time.time >= nextShotTime && ammoInMagazine > 0;
         public float Cooldown => fireCooldown;
+        public float EffectiveCooldown => fireCooldown * externalCooldownMultiplier;
         public float ProjectileSpeed => projectileSpeed;
         public float ProjectileLifetime => projectileLifetime;
         public float ProjectileDamage => projectileDamage;
@@ -58,9 +60,9 @@ namespace TankArena2D
         public bool IsReloading => reloadEndTime > 0f && Time.time < reloadEndTime;
         public bool AutoReloadOnEmpty => autoReloadOnEmpty;
         public float ReloadDuration => reloadDuration;
-        public float CooldownRemainingNormalized => fireCooldown <= 0.001f
+        public float CooldownRemainingNormalized => EffectiveCooldown <= 0.001f
             ? 0f
-            : Mathf.Clamp01((nextShotTime - Time.time) / fireCooldown);
+            : Mathf.Clamp01((nextShotTime - Time.time) / EffectiveCooldown);
         public float ReloadRemainingNormalized => reloadDuration <= 0.001f || !IsReloading
             ? 0f
             : Mathf.Clamp01((reloadEndTime - Time.time) / reloadDuration);
@@ -129,7 +131,7 @@ namespace TankArena2D
                 return false;
             }
 
-            nextShotTime = Time.time + fireCooldown;
+            nextShotTime = Time.time + EffectiveCooldown;
             lastShotTime = Time.time;
             ammoInMagazine = Mathf.Max(0, ammoInMagazine - 1);
             Vector2 safeDirection = direction.sqrMagnitude > 0.0001f ? direction.normalized : Vector2.right;
@@ -170,6 +172,11 @@ namespace TankArena2D
         {
             ammoInMagazine = magazineSize;
             reloadEndTime = 0f;
+        }
+
+        public void SetExternalCooldownMultiplier(float multiplier)
+        {
+            externalCooldownMultiplier = Mathf.Max(0.05f, multiplier);
         }
 
         private void Update()

@@ -176,6 +176,13 @@ namespace TankArena2D
                 Application.Quit();
             }
 
+            float legendY = y + 236f;
+            GUI.Label(new Rect(x, legendY, width, 24f), "Powerups del mapa", cardTitleStyle);
+            GUI.Label(new Rect(x, legendY + 28f, width, 20f), "Verde: Heal, recupera 25 de vida.", bodyStyle);
+            GUI.Label(new Rect(x, legendY + 52f, width, 20f), "Amarillo: Speed Boost, +35% velocidad durante 6s.", bodyStyle);
+            GUI.Label(new Rect(x, legendY + 76f, width, 20f), "Naranja: Rapid Fire, -35% cooldown de disparo durante 6s.", bodyStyle);
+            GUI.Label(new Rect(x, legendY + 104f, width, 36f), "Si recoges otra vez el mismo powerup temporal, el tiempo se reinicia en lugar de acumularse.", mutedStyle);
+
             GUI.backgroundColor = Color.white;
         }
 

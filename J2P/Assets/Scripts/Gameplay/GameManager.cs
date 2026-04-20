@@ -8,6 +8,7 @@ namespace TankArena2D
         [SerializeField] private ArenaBounds arenaBounds;
         [SerializeField] private SpawnManager spawnManager;
         [SerializeField] private PlayerController player;
+        [SerializeField] private bool enableMapPowerups = true;
         [SerializeField, Min(0)] private int initialEnemyCount = 6;
         [SerializeField, Min(0)] private int maxAliveEnemies = 6;
         [SerializeField, Min(0.1f)] private float enemyRespawnDelay = 3f;
@@ -19,6 +20,7 @@ namespace TankArena2D
         [SerializeField, Min(0)] private int maxOnlineBots = 14;
 
         private Coroutine playerRespawnRoutine;
+        private PowerupSpawnManager powerupSpawnManager;
         private bool subscriptionsActive;
         private bool sessionSubmitted;
         private MatchMode matchMode;
@@ -50,6 +52,11 @@ namespace TankArena2D
             if (spawnManager != null)
             {
                 spawnManager.StopAutoRespawn();
+            }
+
+            if (powerupSpawnManager != null)
+            {
+                powerupSpawnManager.StopSpawning();
             }
 
             UnhookSubscriptions();
@@ -87,6 +94,8 @@ namespace TankArena2D
                 spawnManager.ConfigureRespawn(desiredBotCount, desiredBotCount, enemyRespawnDelay, true);
                 spawnManager.StartAutoRespawn();
             }
+
+            EnsurePowerupSystem();
 
             if (IsMultiplayer && GetComponent<MultiplayerClient>() == null)
             {
@@ -158,6 +167,11 @@ namespace TankArena2D
             if (spawnManager != null)
             {
                 spawnManager.SetPlayerTarget(player != null ? player.transform : null);
+            }
+
+            if (powerupSpawnManager != null)
+            {
+                powerupSpawnManager.SetPlayer(player);
             }
         }
 
@@ -316,9 +330,42 @@ namespace TankArena2D
                 spawnManager.StopAutoRespawn();
             }
 
+            if (powerupSpawnManager != null)
+            {
+                powerupSpawnManager.StopSpawning();
+            }
+
             SubmitSessionStats();
             GameOverTriggered?.Invoke();
             Time.timeScale = 0f;
+        }
+
+        private void EnsurePowerupSystem()
+        {
+            if (!enableMapPowerups)
+            {
+                if (powerupSpawnManager != null)
+                {
+                    powerupSpawnManager.StopSpawning();
+                    powerupSpawnManager.enabled = false;
+                }
+
+                return;
+            }
+
+            if (powerupSpawnManager == null)
+            {
+                powerupSpawnManager = GetComponent<PowerupSpawnManager>();
+
+                if (powerupSpawnManager == null)
+                {
+                    powerupSpawnManager = gameObject.AddComponent<PowerupSpawnManager>();
+                }
+            }
+
+            powerupSpawnManager.Configure(arenaBounds, player, IsMultiplayer);
+            powerupSpawnManager.enabled = true;
+            powerupSpawnManager.StartSpawning();
         }
 
         public void SetOnlineScore(int score, int kills)
