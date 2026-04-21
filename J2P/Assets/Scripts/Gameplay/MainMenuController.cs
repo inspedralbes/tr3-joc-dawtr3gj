@@ -27,6 +27,9 @@ namespace TankArena2D
         private string statusMessage = string.Empty;
         private bool requestInFlight;
         private AuthView authView = AuthView.Login;
+        private const string UserFieldControl = "auth-user-field";
+        private const string PasswordFieldControl = "auth-password-field";
+        private bool focusUserFieldNextFrame = true;
 
         private void Awake()
         {
@@ -57,6 +60,8 @@ namespace TankArena2D
             float cardWidth = Mathf.Min(600f, Screen.width - 80f);
             float cardHeight = 450f;
             Rect card = new(Screen.width * 0.5f - cardWidth * 0.5f, Screen.height * 0.5f - cardHeight * 0.5f, cardWidth, cardHeight);
+            Rect userFieldRect = new(card.x + 28f, card.y + 208f, card.width - 56f, 36f);
+            Rect passwordFieldRect = new(card.x + 28f, card.y + 286f, card.width - 56f, 36f);
 
             DrawCard(card, new Color(0.05f, 0.08f, 0.14f, 0.97f));
 
@@ -89,12 +94,15 @@ namespace TankArena2D
             GUI.color = Color.white;
 
             GUI.Label(new Rect(card.x + 28f, card.y + 182f, card.width - 56f, 22f), "Nombre de usuario", mutedStyle);
-            pendingUserName = GUI.TextField(new Rect(card.x + 28f, card.y + 208f, card.width - 56f, 36f), pendingUserName, 24);
+            GUI.SetNextControlName(UserFieldControl);
+            pendingUserName = GUI.TextField(userFieldRect, pendingUserName, 24);
 
             GUI.Label(new Rect(card.x + 28f, card.y + 260f, card.width - 56f, 22f), "Contraseña", mutedStyle);
-            pendingPassword = GUI.PasswordField(new Rect(card.x + 28f, card.y + 286f, card.width - 56f, 36f), pendingPassword, '*', 48);
+            GUI.SetNextControlName(PasswordFieldControl);
+            pendingPassword = GUI.PasswordField(passwordFieldRect, pendingPassword, '*', 48);
 
             string submitLabel = authView == AuthView.Login ? "Iniciar sesión" : "Crear cuenta";
+            ApplyInitialAuthFocus();
 
             GUI.enabled = !requestInFlight;
 
@@ -265,9 +273,12 @@ namespace TankArena2D
 
         private void OnAuthCompleted(AuthApiClient.AuthResult result)
         {
+            requestInFlight = false;
+
             if (!result.Success)
             {
                 statusMessage = result.Message;
+                focusUserFieldNextFrame = true;
                 return;
             }
 
@@ -275,6 +286,22 @@ namespace TankArena2D
             ProfileService.Instance.RefreshRemoteStats();
             statusMessage = string.Empty;
             pendingPassword = string.Empty;
+        }
+
+        private void ApplyInitialAuthFocus()
+        {
+            Event currentEvent = Event.current;
+
+            if (currentEvent == null)
+            {
+                return;
+            }
+
+            if (focusUserFieldNextFrame && currentEvent.type == EventType.Repaint)
+            {
+                GUI.FocusControl(UserFieldControl);
+                focusUserFieldNextFrame = false;
+            }
         }
 
         private static void DrawBackground()
