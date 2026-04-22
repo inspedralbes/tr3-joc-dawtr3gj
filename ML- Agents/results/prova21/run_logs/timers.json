@@ -1,0 +1,54 @@
+{
+    "name": "root",
+    "metadata": {
+        "timer_format_version": "0.1.0",
+        "start_time_seconds": "1774435621",
+        "python_version": "3.10.12 (main, Aug 16 2023, 05:39:07) [GCC 12.2.0]",
+        "command_line_arguments": "/usr/local/bin/mlagents-learn /workspace/simple.yaml --run-id=prova21 --resume",
+        "mlagents_version": "1.1.0",
+        "mlagents_envs_version": "1.1.0",
+        "communication_protocol_version": "1.5.0",
+        "pytorch_version": "2.2.2+cu121",
+        "numpy_version": "1.23.5",
+        "end_time_seconds": "1774435627"
+    },
+    "total": 6.142604141999982,
+    "count": 1,
+    "self": 0.004127701999095734,
+    "children": {
+        "run_training.setup": {
+            "total": 0.011358457000824274,
+            "count": 1,
+            "self": 0.011358457000824274
+        },
+        "TrainerController.start_learning": {
+            "total": 6.127117983000062,
+            "count": 1,
+            "self": 4.2346999180153944e-05,
+            "children": {
+                "TrainerController._reset_env": {
+                    "total": 6.105404431000352,
+                    "count": 1,
+                    "self": 6.105404431000352
+                },
+                "trainer_threads": {
+                    "total": 6.259997462620959e-07,
+                    "count": 1,
+                    "self": 6.259997462620959e-07
+                },
+                "TrainerController._save_models": {
+                    "total": 0.02167057900078362,
+                    "count": 1,
+                    "self": 0.0002616740002849838,
+                    "children": {
+                        "RLTrainer._checkpoint": {
+                            "total": 0.021408905000498635,
+                            "count": 1,
+                            "self": 0.021408905000498635
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
