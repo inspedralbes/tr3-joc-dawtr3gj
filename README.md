@@ -14,12 +14,6 @@ El projecte inclou comunicació **client-servidor**, funcionalitat **multijugado
 ## Gestor de tasques
 - [Taiga del projecte](https://tree.taiga.io/project/javaguper-j/backlog)
 
-## Prototip gràfic
-- Pendent d’afegir
-
-## URL de producció
-- Pendent de desplegament
-
 ## Estat del projecte
 Actualment el projecte es troba en fase inicial de desenvolupament. Ja s’ha creat l’estructura base del repositori, el projecte de Unity integrat amb GitHub i el gestor de tasques a Taiga.
 
